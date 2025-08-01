@@ -1,0 +1,15 @@
+spacy
+rapidfuzz
+autocorrect
+parsedatetime
+google-generativeai
+python-dotenv
+streamlit
+requests
+graphiti_core
+groq
+ably
+langchain
+langchain-google-genai
+langchain-core
+rich
