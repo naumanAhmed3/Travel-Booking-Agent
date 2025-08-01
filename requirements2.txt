@@ -1,0 +1,8 @@
+spacy
+rapidfuzz
+autocorrect
+parsedatetime
+google-generativeai
+python-dotenv
+streamlit
+requests
