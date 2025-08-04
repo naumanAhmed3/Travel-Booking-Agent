@@ -160,7 +160,12 @@ def handle_negation_in_cities(full_query, now_part):
     """
     # Negation patterns for cities
     negation_patterns = [
+        r'no,?\s+not\s+from\s+(\w+)\s+but\s+(\w+)',  # "no not from lhe but isb"
+        r'not\s+from\s+(\w+)\s+but\s+(?:from\s+)?(\w+)',  # "not from lhe but from isb" or "not from lhe but isb"
+        r'not\s+to\s+(\w+)\s+but\s+(?:to\s+)?(\w+)',  # "not to karachi but rawalpindi" or "not to khi but to isb"
         r'(?:no,?\s+)?(?:from\s+)?(\w+)\s+not\s+(\w+)',  # "isb not lhe", "from isb not lhe"
+        r'(?:no,?\s+)?(?:to\s+)?(\w+)\s+not\s+(\w+)',  # "to isb not lhe", "isb not lhe"
+        r'not\s+(\w+)\s+but\s+(\w+)',  # "not lhe but isb"
         r'not\s+(\w+)',  # "not lhe"
         r'no,?\s+(?:from\s+)?(\w+)',  # "no, from isb"
     ]
@@ -182,7 +187,140 @@ def handle_negation_in_cities(full_query, now_part):
         if match:
             groups = match.groups()
             
-            if len(groups) == 2 and groups[1]:  # Pattern like "isb not lhe"
+            # Handle new patterns first
+            if i == 0:  # "no not from lhe but isb"
+                negated_city = groups[0].strip()  # lhe (what we're rejecting)
+                new_city = groups[1].strip()      # isb (what we want)
+                
+                # Convert to IATA codes
+                new_city_iata = city_to_iata.get(new_city.lower())
+                if not new_city_iata and len(new_city) == 3 and new_city.upper() in iata_codes:
+                    new_city_iata = new_city.upper()
+                
+                if new_city_iata:
+                    # This is clearly a source change, preserve destination
+                    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                    return new_city_iata, context_dest
+                    
+            elif i == 1:  # "not from lhe but from isb"
+                negated_city = groups[0].strip()  # lhe 
+                new_city = groups[1].strip()      # isb
+                
+                # Convert to IATA codes
+                new_city_iata = city_to_iata.get(new_city.lower())
+                if not new_city_iata and len(new_city) == 3 and new_city.upper() in iata_codes:
+                    new_city_iata = new_city.upper()
+                
+                if new_city_iata:
+                    # This is clearly a source change, preserve destination
+                    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                    return new_city_iata, context_dest
+                    
+            elif i == 2:  # "not to karachi but rawalpindi"
+                negated_city = groups[0].strip()  # karachi (what we're rejecting)
+                new_city = groups[1].strip()      # rawalpindi (what we want)
+                
+                # Convert to IATA codes
+                new_city_iata = city_to_iata.get(new_city.lower())
+                if not new_city_iata and len(new_city) == 3 and new_city.upper() in iata_codes:
+                    new_city_iata = new_city.upper()
+                
+                if new_city_iata:
+                    # This is clearly a destination change, preserve source
+                    context_source = context_cities[0][0] if context_cities else None
+                    return context_source, new_city_iata
+                    
+            elif i == 3:  # "isb not lhe", "from isb not lhe" 
+                new_city = groups[0].strip()      # isb (what we want)
+                negated_city = groups[1].strip()  # lhe (what we're rejecting)
+                
+                # Convert to IATA codes
+                new_city_iata = city_to_iata.get(new_city.lower())
+                negated_city_iata = city_to_iata.get(negated_city.lower())
+                
+                # If not found as city name, check if it's already an IATA code
+                if not new_city_iata and len(new_city) == 3 and new_city.upper() in iata_codes:
+                    new_city_iata = new_city.upper()
+                if not negated_city_iata and len(negated_city) == 3 and negated_city.upper() in iata_codes:
+                    negated_city_iata = negated_city.upper()
+                
+                if new_city_iata and negated_city_iata:
+                    context_source = context_cities[0][0] if context_cities else None
+                    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                    
+                    # Check if this is a "from X not Y" pattern - source change
+                    if "from" in now_part.lower():
+                        return new_city_iata, context_dest  # X is source, preserve destination
+                    else:
+                        # Determine which position to replace based on context
+                        if context_source == negated_city_iata:
+                            return new_city_iata, context_dest  # Replace source
+                        elif context_dest == negated_city_iata:
+                            return context_source, new_city_iata  # Replace destination
+                        else:
+                            # Default: assume it's a source change
+                            return new_city_iata, context_dest
+                            
+            elif i == 4:  # "to isb not lhe", "isb not lhe" for destination
+                new_city = groups[0].strip()      # isb (what we want)
+                negated_city = groups[1].strip()  # lhe (what we're rejecting)
+                
+                # Convert to IATA codes
+                new_city_iata = city_to_iata.get(new_city.lower())
+                negated_city_iata = city_to_iata.get(negated_city.lower())
+                
+                # If not found as city name, check if it's already an IATA code
+                if not new_city_iata and len(new_city) == 3 and new_city.upper() in iata_codes:
+                    new_city_iata = new_city.upper()
+                if not negated_city_iata and len(negated_city) == 3 and negated_city.upper() in iata_codes:
+                    negated_city_iata = negated_city.upper()
+                
+                if new_city_iata and negated_city_iata:
+                    context_source = context_cities[0][0] if context_cities else None
+                    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                    
+                    # Check if this is a "to X not Y" pattern - destination change
+                    if "to" in now_part.lower():
+                        return context_source, new_city_iata  # X is destination, preserve source
+                    else:
+                        # Determine which position to replace based on context
+                        if context_source == negated_city_iata:
+                            return new_city_iata, context_dest  # Replace source
+                        elif context_dest == negated_city_iata:
+                            return context_source, new_city_iata  # Replace destination
+                        else:
+                            # Default: assume it's a destination change for this pattern
+                            return context_source, new_city_iata
+                    
+            elif i == 5:  # "not lhe but isb" (index shifted due to new patterns)
+                negated_city = groups[0].strip()  # lhe
+                new_city = groups[1].strip()      # isb
+                
+                # Convert to IATA codes
+                new_city_iata = city_to_iata.get(new_city.lower())
+                if not new_city_iata and len(new_city) == 3 and new_city.upper() in iata_codes:
+                    new_city_iata = new_city.upper()
+                
+                if new_city_iata:
+                    # Determine which position to replace based on context
+                    context_source = context_cities[0][0] if context_cities else None
+                    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                    
+                    # Check which city is being negated to determine replacement
+                    negated_city_iata = city_to_iata.get(negated_city.lower())
+                    if not negated_city_iata and len(negated_city) == 3 and negated_city.upper() in iata_codes:
+                        negated_city_iata = negated_city.upper()
+                    
+                    if negated_city_iata:
+                        if context_source == negated_city_iata:
+                            return new_city_iata, context_dest  # Replace source
+                        elif context_dest == negated_city_iata:
+                            return context_source, new_city_iata  # Replace destination
+                        else:
+                            # Default: assume it's a source change
+                            return new_city_iata, context_dest
+                    
+            elif len(groups) == 2 and groups[1]:  # Original pattern like "isb not lhe"
                 new_city = groups[0].strip()
                 negated_city = groups[1].strip()
                 
@@ -218,10 +356,34 @@ def handle_negation_in_cities(full_query, now_part):
                         else:
                             # Default: assume it's a source change
                             return new_city_iata, context_dest
+                    context_source = context_cities[0][0] if context_cities else None
+                    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                    
+                    # The pattern "X not Y" in "from X not Y" context means:
+                    # - User wants to travel FROM X (new/confirmed source)
+                    # - NOT from Y (rejecting Y as source)
+                    # So X becomes the source, and we preserve the original destination
+                    
+                    # Check if this is a "from X not Y" pattern
+                    if "from" in now_part.lower():
+                        return new_city_iata, context_dest  # X is source, preserve destination
+                    else:
+                        # General "X not Y" pattern - need to determine which one was being replaced
+                        if context_source == negated_city_iata:
+                            return new_city_iata, context_dest  # Replace source
+                        elif context_dest == negated_city_iata:
+                            return context_source, new_city_iata  # Replace destination
+                        else:
+                            # Default: assume it's a source change
+                            return new_city_iata, context_dest
                         
             elif len(groups) >= 1 and groups[0]:  # Pattern like "not lhe" or "no, from isb"
                 new_city = groups[0].strip()
                 new_city_iata = city_to_iata.get(new_city.lower())
+                
+                # If not found as city name, check if it's already an IATA code
+                if not new_city_iata and len(new_city) == 3 and new_city.upper() in iata_codes:
+                    new_city_iata = new_city.upper()
                 
                 if new_city_iata:
                     # Check directional indicators to determine if it's source or destination
@@ -1208,8 +1370,16 @@ def extract_dates(text, flight_type=None):
             # Use the "Now" part for date extraction
             text_for_parsing = now_part
         else:
-            # No date info in "Now" part, use original text to preserve existing dates
-            text_for_parsing = original_text
+            # No date info in "Now" part, extract date from the part before "now"
+            # to preserve the existing date context
+            before_now_part = original_text[:original_text.find(" now ")].strip() if " now " in original_text else original_text[:4].strip()
+            
+            # Extract date from the context before "now"
+            if before_now_part:
+                text_for_parsing = before_now_part
+            else:
+                # If no context before "now", return None to preserve existing dates
+                return None if flight_type != "return" else (None, None)
     else:
         # Use full text for normal queries
         text_for_parsing = original_text
@@ -1567,17 +1737,21 @@ def extract_travel_info(query):
         departure_date, return_date = extract_dates(query, flight_type)
         if departure_date:
             result["departure_date"] = departure_date
-        else:
+        # Only set to None if not a modification query - otherwise omit key to preserve existing value
+        elif not (" now " in query.lower() or query.lower().strip().startswith("now ")):
             result["departure_date"] = None
+        
         if return_date:
             result["return_date"] = return_date
-        else:
+        # Only set to None if not a modification query - otherwise omit key to preserve existing value
+        elif not (" now " in query.lower() or query.lower().strip().startswith("now ")):
             result["return_date"] = None
     else:
         date = extract_dates(query, flight_type)
         if date:
             result["departure_date"] = date
-        else:
+        # Only set to None if not a modification query - otherwise omit key to preserve existing value
+        elif not (" now " in query.lower() or query.lower().strip().startswith("now ")):
             result["departure_date"] = None
     
     # Extract passenger count

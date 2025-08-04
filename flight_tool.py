@@ -46,7 +46,7 @@ class FlightSearchEngine:
                 self.auth_url,
                 headers={"Content-Type": "application/json"},
                 json=payload,
-                timeout=10
+                timeout=20
             )
 
             if response.ok:
@@ -98,7 +98,7 @@ class FlightSearchEngine:
                 self.content_provider_api,
                 headers=self.api_headers,
                 json=payload,
-                timeout=15
+                timeout=20
             )
             
             if response.status_code == 200:
