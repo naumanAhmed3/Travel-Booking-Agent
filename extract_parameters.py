@@ -292,6 +292,20 @@ def extract_cities(query):
         # Single city - could be source or destination based on context
         city_iata = found_cities_sorted[0][0]
         query_lower = query.lower()
+        
+        # For modification queries, be smarter about context
+        if "now" in query_lower:
+            # Check if this is a negation modification
+            has_negation, cleaned_text = detect_negation_in_modification(query)
+            if has_negation:
+                # In negation context, a single city is usually the new destination
+                # unless explicitly marked as "from"
+                if any(word in cleaned_text.lower() for word in ["from", "leaving", "departing"]):
+                    return city_iata, None  # It's a source
+                else:
+                    return None, city_iata  # It's a destination
+        
+        # Normal context analysis
         if any(word in query_lower for word in ["to", "going to", "destination"]):
             return None, city_iata  # It's a destination
         else:
@@ -892,7 +906,10 @@ def extract_dates(text, flight_type=None):
                 r'depart\s+on\s+(.+)',
                 r'leave\s+on\s+(.+)',
                 r'departing\s+on\s+(.+)',
-                r'go\s+on\s+(.+)'
+                r'go\s+on\s+(.+)',
+                r'change\s+(?:the\s+)?departure\s+(?:date\s+)?to\s+(.+)',
+                r'move\s+departure\s+(?:date\s+)?to\s+(.+)',
+                r'update\s+departure\s+(?:date\s+)?to\s+(.+)'
             ]
             
             # Use the appropriate text for pattern matching
@@ -1001,11 +1018,14 @@ def extract_dates(text, flight_type=None):
             ("return", [
                 r'(?:come\s+back|return|back).*?(?:on\s+|must\s+on\s+|by\s+)([^,\.]+)',
                 r'(?:must\s+on|need\s+to\s+(?:come\s+)?back.*?on)\s+([^,\.]+)',
-                r'(?:return.*?on|back.*?on)\s+([^,\.]+)'
+                r'(?:return.*?on|back.*?on)\s+([^,\.]+)',
+                r'returning\s+(?:on\s+)?([^,\s]+(?:\s+[^,\s]+)*?)(?=\s*$|,|\.|departing)',
             ]),
             ("departure", [
-                r'(?:depart|leave|going|travel).*?(?:on\s+)([^,\.]+)',
-                r'(?:on\s+)([^,\.]+).*?(?:going|travel|depart|leave)'
+                r'(?:depart|leave).*?(?:on\s+)([^,\.]+)',
+                r'(?:on\s+)([^,\.]+).*?(?:going|travel|depart|leave)',
+                r'departing\s+(?:on\s+)?([^,\s]+(?:\s+[^,\s]+)*?)(?=\s+returning|\s+back|$|,|\.)',
+                r'depart\s+(?:on\s+)?([^,\s]+(?:\s+[^,\s]+)*?)(?=\s+returning|\s+back|$|,|\.)',
             ])
         ]
 
@@ -1189,8 +1209,68 @@ def extract_travel_info(query):
         
         # Merge information, giving priority to modification (negated content)
         result = original_info.copy()
+        
+        # Special handling for date fields in return flights
+        if original_info.get('flight_type') == 'return' and modification_info:
+            # If original had both departure and return dates, preserve them unless explicitly changed
+            if 'departure_date' in original_info and 'return_date' in original_info:
+                # Check if modification specifically targets departure or return date
+                mod_text = modification_part.lower()
+                is_departure_change = any(pattern in mod_text for pattern in [
+                    'departure', 'departing', 'depart', 'leave', 'going'
+                ]) and not any(pattern in mod_text for pattern in ['return', 'back', 'coming'])
+                
+                is_return_change = any(pattern in mod_text for pattern in [
+                    'return', 'returning', 'back', 'coming back'
+                ]) and not any(pattern in mod_text for pattern in ['departure', 'departing', 'depart'])
+                
+                if is_departure_change and modification_info.get('departure_date'):
+                    # Change departure, preserve return
+                    result['departure_date'] = modification_info['departure_date']
+                    result['return_date'] = original_info['return_date']
+                elif is_return_change and modification_info.get('return_date'):
+                    # Change return, preserve departure
+                    result['departure_date'] = original_info['departure_date']
+                    result['return_date'] = modification_info['return_date']
+                elif modification_info.get('departure_date') and not modification_info.get('return_date'):
+                    # Got departure date only, preserve original return
+                    result['departure_date'] = modification_info['departure_date']
+                    result['return_date'] = original_info['return_date']
+                elif modification_info.get('return_date') and not modification_info.get('departure_date'):
+                    # Got return date only, preserve original departure
+                    result['departure_date'] = original_info['departure_date']
+                    result['return_date'] = modification_info['return_date']
+        
+        # Handle other fields
         for key, value in modification_info.items():
+            if key in ['departure_date', 'return_date']:
+                # Skip dates as they were handled above
+                continue
+                
             if value is not None and value != '' and value != 'null':
+                # Special handling for flight_type changes
+                if key == 'flight_type':
+                    # Check if modification explicitly mentions one-way or return
+                    mod_text = modification_part.lower()
+                    has_return_indicators = any(indicator in mod_text for indicator in [
+                        'return', 'round trip', 'round-trip', 'roundtrip', 'two way', 'two-way'
+                    ])
+                    has_oneway_indicators = any(indicator in mod_text for indicator in [
+                        'one way', 'one-way', 'oneway', 'single', 'just one way', 'only one way'
+                    ])
+                    
+                    if has_return_indicators:
+                        result[key] = 'return'
+                    elif has_oneway_indicators:
+                        result[key] = 'one_way'
+                    elif value != original_info.get('flight_type'):
+                        # Only change if it's different from original
+                        result[key] = value
+                    # Otherwise, keep original flight_type
+                else:
+                    result[key] = value
+            elif key not in ['departure_date', 'return_date', 'flight_type'] and value is not None:
+                # For other non-date fields, update even if None (but not for dates or flight_type)
                 result[key] = value
     else:
         # Normal extraction for non-modification queries
