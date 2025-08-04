@@ -79,108 +79,6 @@ iata_codes = set(city_to_iata.values())
 def correct_spelling(text):
     return spell(text)
 
-def detect_negation_in_modification(now_part):
-    """
-    Detect negation patterns in the modification part (after "now").
-    
-    Args:
-        now_part (str): The text after "now" in a modification query
-        
-    Returns:
-        tuple: (has_negation, cleaned_text) where:
-               - has_negation: Boolean indicating if negation was detected
-               - cleaned_text: The text with negation indicators removed
-    """
-    now_part_lower = now_part.lower()
-    
-    # Negation patterns to detect
-    negation_patterns = [
-        r'\bno\b',           # "no"
-        r'\bnot\b',          # "not"
-        r'\bdont?\b',        # "don't", "dont"
-        r'\bdoesn\'t\b',     # "doesn't"
-        r'\bwont?\b',        # "won't", "wont"
-        r'\bcan\'t\b',       # "can't"
-        r'\bisn\'t\b',       # "isn't"
-        r'\baren\'t\b',      # "aren't"
-        r'\bwasn\'t\b',      # "wasn't"
-        r'\bweren\'t\b',     # "weren't"
-        r'\bactually\b',     # "actually" (correction indicator)
-        r'\binstead\b',      # "instead"
-        r'\brather\b',       # "rather"
-        r'\bchange\s+(?:it\s+)?to\b',  # "change to", "change it to"
-        r'\bcorrect\s+(?:it\s+)?to\b', # "correct to", "correct it to"
-        r'\bmodify\s+(?:it\s+)?to\b',  # "modify to", "modify it to"
-    ]
-    
-    has_negation = False
-    cleaned_text = now_part_lower
-    
-    # Check for negation patterns
-    for pattern in negation_patterns:
-        if re.search(pattern, now_part_lower):
-            has_negation = True
-            # Remove the negation word/phrase but keep the rest
-            cleaned_text = re.sub(pattern, '', cleaned_text).strip()
-            # Clean up extra spaces
-            cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
-    
-    # Handle specific negation structures with better preservation
-    
-    # Pattern: "no, from X to Y" or "no from X to Y"
-    no_from_pattern = r'\bno\s*,?\s*from\b'
-    if re.search(no_from_pattern, now_part_lower):
-        has_negation = True
-        cleaned_text = re.sub(no_from_pattern, 'from', cleaned_text).strip()
-    
-    # Pattern: "not X, Y" -> becomes just "Y"  
-    not_comma_pattern = r'\bnot\s+([^,]+),\s*(.+)'
-    not_match = re.search(not_comma_pattern, now_part_lower)
-    if not_match:
-        has_negation = True
-        cleaned_text = not_match.group(2).strip()
-    
-    # Pattern: "no X, from Y" -> becomes "from Y" 
-    no_x_from_pattern = r'\bno\s+([^,]+),\s*from\s+(.+)'
-    no_from_match = re.search(no_x_from_pattern, now_part_lower)
-    if no_from_match:
-        has_negation = True
-        cleaned_text = f"from {no_from_match.group(2)}".strip()
-        
-    # Pattern: "actually not X, going to Y" -> "going to Y"
-    actually_not_pattern = r'\bactually\s+not\s+([^,]+),\s*(.+)'
-    actually_match = re.search(actually_not_pattern, now_part_lower)
-    if actually_match:
-        has_negation = True
-        cleaned_text = actually_match.group(2).strip()
-    
-    # Pattern: "no, X class from Y to Z today" -> "X class from Y to Z today"
-    no_comma_complex = r'\bno,\s*(.+)'
-    no_comma_match = re.search(no_comma_complex, now_part_lower)
-    if no_comma_match:
-        has_negation = True
-        cleaned_text = no_comma_match.group(1).strip()
-    
-    # Handle "don't want X, prefer Y" pattern
-    dont_want_pattern = r'\bdon\'t\s+want\s+([^,]+),\s*prefer\s+(.+)'
-    dont_want_match = re.search(dont_want_pattern, now_part_lower)
-    if dont_want_match:
-        has_negation = True
-        # Extract the preferred option
-        preferred = dont_want_match.group(2).strip()
-        cleaned_text = preferred
-    
-    # Handle "from X not from Y" pattern - keep only "from X"
-    from_not_from_pattern = r'\bfrom\s+([^,\s]+(?:\s+[^,\s]+)*)\s+not\s+from\s+([^,\s]+(?:\s+[^,\s]+)*)'
-    from_not_from_match = re.search(from_not_from_pattern, now_part_lower)
-    if from_not_from_match:
-        has_negation = True
-        # Keep only the first "from X" part
-        preferred_source = from_not_from_match.group(1).strip()
-        cleaned_text = f"from {preferred_source}"
-    
-    return has_negation, cleaned_text
-
 def extract_cities_multiword(text):
     """Extract multi-word cities first, then single word cities, and IATA codes"""
     text_lower = text.lower()
@@ -196,16 +94,7 @@ def extract_cities_multiword(text):
         else:
             now_start = 4  # Skip "now "
             
-        now_part = text_lower[now_start:].strip()
-        
-        # NEGATION HANDLING: Check for negation in the modification part
-        has_negation, cleaned_now_part = detect_negation_in_modification(now_part)
-        
-        if has_negation:
-            # Use cleaned text for extraction
-            relevant_text = cleaned_now_part
-        else:
-            relevant_text = now_part
+        relevant_text = text_lower[now_start:].strip()
     else:
         relevant_text = text_lower
     
@@ -264,136 +153,303 @@ def extract_cities_multiword(text):
     
     return found_cities
 
-def extract_cities(query):
+def handle_negation_in_cities(full_query, now_part):
     """
-    Extract source and destination cities from query.
-    This is the simplified version used by _extract_basic_travel_info.
+    Handle negation patterns in modification queries for cities.
+    Returns (source, destination) tuple if negation is detected, None otherwise.
     """
+    # Negation patterns for cities
+    negation_patterns = [
+        r'(?:no,?\s+)?(?:from\s+)?(\w+)\s+not\s+(\w+)',  # "isb not lhe", "from isb not lhe"
+        r'not\s+(\w+)',  # "not lhe"
+        r'no,?\s+(?:from\s+)?(\w+)',  # "no, from isb"
+    ]
     
-    # Check for negation in modification queries
-    if "now" in query.lower():
-        has_negation, cleaned_text = detect_negation_in_modification(query)
-        if has_negation:
-            found_cities = extract_cities_multiword(cleaned_text)
-        else:
-            found_cities = extract_cities_multiword(query)
+    # Extract cities from the original context (before "now")
+    # Handle both "Now" and "now" cases
+    if " Now " in full_query:
+        before_now = full_query.split(" Now ")[0]
+    elif " now " in full_query:
+        before_now = full_query.split(" now ")[0]
     else:
-        # Normal extraction
-        found_cities = extract_cities_multiword(query)
-        
-    # Convert found_cities (list of tuples) to source, destination
-    if not found_cities:
-        return None, None
+        before_now = ""
     
-    # Sort cities by their position in the text (third element in tuple is character position)
-    found_cities_sorted = sorted(found_cities, key=lambda x: x[2])  # Sort by character position
+    context_cities = extract_cities_multiword(before_now)
     
-    if len(found_cities_sorted) == 1:
-        # Single city - could be source or destination based on context
-        city_iata = found_cities_sorted[0][0]
-        query_lower = query.lower()
-        
-        # For modification queries, be smarter about context
-        if "now" in query_lower:
-            # Check if this is a negation modification
-            has_negation, cleaned_text = detect_negation_in_modification(query)
-            if has_negation:
-                # In negation context, a single city is usually the new destination
-                # unless explicitly marked as "from"
-                if any(word in cleaned_text.lower() for word in ["from", "leaving", "departing"]):
-                    return city_iata, None  # It's a source
-                else:
-                    return None, city_iata  # It's a destination
-        
-        # Normal context analysis
-        if any(word in query_lower for word in ["to", "going to", "destination"]):
-            return None, city_iata  # It's a destination
-        else:
-            return city_iata, None  # It's a source
-    else:
-        # Multiple cities - need to determine source and destination based on context
-        query_lower = query.lower()
-        
-        # Look for directional indicators
-        from_indicators = ["from", "leaving", "departing", "starting"]
-        to_indicators = ["to", "going to", "towards", "arriving", "destination"]
-        
-        source = None
-        destination = None
-        
-        # Check for explicit "from X to Y" pattern
-        from_to_pattern = r'from\s+([a-zA-Z\s]+?)\s+to\s+([a-zA-Z\s]+)'
-        from_to_match = re.search(from_to_pattern, query_lower)
-        if from_to_match:
-            from_city_text = from_to_match.group(1).strip()
-            to_city_text = from_to_match.group(2).strip()
+    # Look for negation patterns in the now part
+    for i, pattern in enumerate(negation_patterns):
+        match = re.search(pattern, now_part)
+        if match:
+            groups = match.groups()
             
-            # Find which IATA codes correspond to these text matches
-            for city_iata, _, _ in found_cities_sorted:
-                city_name = [k for k, v in city_to_iata.items() if v == city_iata][0]
-                if city_name in from_city_text:
-                    source = city_iata
-                elif city_name in to_city_text:
-                    destination = city_iata
-        
-        # Check for "go to X from Y" pattern
-        if not source or not destination:
-            to_from_pattern = r'(?:go\s+)?to\s+([a-zA-Z\s]+?)\s+from\s+([a-zA-Z\s]+)'
-            to_from_match = re.search(to_from_pattern, query_lower)
-            if to_from_match:
-                to_city_text = to_from_match.group(1).strip()
-                from_city_text = to_from_match.group(2).strip()
+            if len(groups) == 2 and groups[1]:  # Pattern like "isb not lhe"
+                new_city = groups[0].strip()
+                negated_city = groups[1].strip()
                 
-                # Find which IATA codes correspond to these text matches
-                for city_iata, _, _ in found_cities_sorted:
-                    city_name = [k for k, v in city_to_iata.items() if v == city_iata][0]
-                    if city_name in from_city_text:
+                # Convert to IATA if possible
+                new_city_iata = city_to_iata.get(new_city.lower())
+                negated_city_iata = city_to_iata.get(negated_city.lower())
+                
+                # If not found as city name, check if it's already an IATA code
+                if not new_city_iata and len(new_city) == 3 and new_city.upper() in iata_codes:
+                    new_city_iata = new_city.upper()
+                if not negated_city_iata and len(negated_city) == 3 and negated_city.upper() in iata_codes:
+                    negated_city_iata = negated_city.upper()
+                
+                if new_city_iata and negated_city_iata:
+                    # Find which position the negated city had in context
+                    context_source = context_cities[0][0] if context_cities else None
+                    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                    
+                    # The pattern "X not Y" in "from X not Y" context means:
+                    # - User wants to travel FROM X (new/confirmed source)
+                    # - NOT from Y (rejecting Y as source)
+                    # So X becomes the source, and we preserve the original destination
+                    
+                    # Check if this is a "from X not Y" pattern
+                    if "from" in now_part.lower():
+                        return new_city_iata, context_dest  # X is source, preserve destination
+                    else:
+                        # General "X not Y" pattern - need to determine which one was being replaced
+                        if context_source == negated_city_iata:
+                            return new_city_iata, context_dest  # Replace source
+                        elif context_dest == negated_city_iata:
+                            return context_source, new_city_iata  # Replace destination
+                        else:
+                            # Default: assume it's a source change
+                            return new_city_iata, context_dest
+                        
+            elif len(groups) >= 1 and groups[0]:  # Pattern like "not lhe" or "no, from isb"
+                new_city = groups[0].strip()
+                new_city_iata = city_to_iata.get(new_city.lower())
+                
+                if new_city_iata:
+                    # Check directional indicators to determine if it's source or destination
+                    if any(indicator in now_part for indicator in ["from", "leaving", "departing"]):
+                        # It's a source change
+                        context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                        return new_city_iata, context_dest
+                    elif any(indicator in now_part for indicator in ["to", "going to", "destination"]):
+                        # It's a destination change
+                        context_source = context_cities[0][0] if context_cities else None
+                        return context_source, new_city_iata
+                    else:
+                        # Default behavior based on context
+                        context_source = context_cities[0][0] if context_cities else None
+                        context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+                        
+                        # If only one city in context, assume we're changing the source
+                        if context_source and not context_dest:
+                            return new_city_iata, None
+                        else:
+                            return new_city_iata, context_dest
+    
+    return None
+
+def extract_cities(query):
+    query_lower = query.lower()
+    
+    # Special case: Handle modification queries containing "Now"
+    # This is for conversational modifications where the agent asks for changes
+    is_modification_query = " now " in query_lower or query_lower.strip().startswith("now ")
+    
+    if is_modification_query:
+        
+        # Find the "Now" part and extract cities from it
+        if " now " in query_lower:
+            now_start = query_lower.find(" now ") + 1  # +1 to include the space before "now"
+        else:
+            now_start = 0  # If it starts with "now"
+            
+        now_part = query_lower[now_start:].strip()
+        
+        # Handle negation patterns in modification queries
+        negation_handled_cities = handle_negation_in_cities(query_lower, now_part)
+        if negation_handled_cities:
+            return negation_handled_cities
+        
+        now_cities = extract_cities_multiword(now_part)
+        
+        if now_cities:
+            # Process only the cities from the "Now" modification
+            found_cities = now_cities
+            # Use the "Now" part for directional analysis too
+            analysis_text = now_part
+            doc = nlp(now_part)
+        else:
+            # Fallback to full extraction if no cities found in "Now" part
+            found_cities = extract_cities_multiword(query_lower)
+            analysis_text = query_lower
+            doc = nlp(query_lower)
+    else:
+        # Normal extraction process
+        # First try to extract multi-word cities
+        found_cities = extract_cities_multiword(query_lower)
+        analysis_text = query_lower
+        doc = nlp(query_lower)
+    
+    # If no multi-word cities found, try entity recognition and fuzzy matching
+    if not found_cities:
+        for ent in doc.ents:
+            if ent.label_ in ("GPE", "LOC"):
+                match, score, _ = process.extractOne(ent.text.lower(), city_names)
+                if score > 85:
+                    iata = city_to_iata[match]
+                    found_cities.append((iata, ent.start, ent.start_char))
+    
+    # Fallback to token-based fuzzy matching if still no entities found
+    if not found_cities:
+        tokens = [token.text for token in doc]  # Keep original case for IATA detection
+        for i, token in enumerate(tokens):
+            # Check if token is an IATA code
+            if len(token) == 3 and token.upper() in iata_codes:
+                found_cities.append((token.upper(), i, doc[i].idx))
+            else:
+                # Try fuzzy matching with city names
+                match, score, _ = process.extractOne(token.lower(), city_names)
+                if score > 90:
+                    iata = city_to_iata[match]
+                    found_cities.append((iata, i, doc[i].idx))
+    
+    # Remove duplicates and sort by character position
+    seen = set()
+    unique_cities = []
+    for city, token_idx, char_idx in found_cities:
+        if city not in seen:
+            seen.add(city)
+            unique_cities.append((city, token_idx, char_idx))
+    found_cities = sorted(unique_cities, key=lambda x: x[2])  # Sort by character position
+    
+    # Use improved logic to identify source and destination
+    source = destination = None
+    
+    # Look for directional indicators in the analysis text (which is either full query or "Now" part)
+    from_indicators = ["from", "leaving", "departing", "starting"]
+    to_indicators = ["to", "towards", "going to", "arriving", "destination"]
+    
+    # Check for explicit directional phrases using the correct analysis text
+    for token in doc:
+        if token.text.lower() in from_indicators:
+            # Look for cities after "from" indicators
+            for city_info in found_cities:
+                city_iata, city_token_idx, city_char_idx = city_info
+                if city_char_idx > token.idx:  # City appears after the indicator
+                    if not source:  # Take the first one found
                         source = city_iata
-                    elif city_name in to_city_text:
+                        break
+        
+        elif token.text.lower() in to_indicators or (token.text.lower() == "to" and token.dep_ == "prep"):
+            # Look for cities after "to" indicators
+            for city_info in found_cities:
+                city_iata, city_token_idx, city_char_idx = city_info
+                if city_char_idx > token.idx:  # City appears after the indicator
+                    if not destination:  # Take the first one found
                         destination = city_iata
+                        break
+    
+    # Special handling for modification queries: preserve context when only one side is modified
+    if is_modification_query and (source or destination) and not (source and destination):
+        # Extract context from before "now" to fill in missing information
+        before_now = query_lower.split(" now ")[0] if " now " in query_lower else ""
+        context_cities = extract_cities_multiword(before_now)
+        context_source = context_cities[0][0] if context_cities else None
+        context_dest = context_cities[1][0] if len(context_cities) > 1 else None
         
-        # If no explicit patterns found, use word proximity to indicators
-        if not source or not destination:
-            for city_iata, token_idx, char_idx in found_cities_sorted:
-                # Check words around this city
-                words = query_lower.split()
-                city_word_idx = token_idx
+        if source and not destination and context_dest:
+            # We have a new source but no destination, use context destination
+            destination = context_dest
+        elif destination and not source and context_source:
+            # We have a new destination but no source, use context source
+            source = context_source
+    
+    # Fallback: If no clear indicators found, use position-based logic
+    if not source and not destination and found_cities:
+        if len(found_cities) == 1:
+            # Single city - could be either source or destination
+            
+            # Special handling for modification queries
+            if is_modification_query:
+                # Extract context from before "now" to understand what we're modifying
+                before_now = query_lower.split(" now ")[0] if " now " in query_lower else ""
+                context_cities = extract_cities_multiword(before_now)
+                context_source = context_cities[0][0] if context_cities else None
+                context_dest = context_cities[1][0] if len(context_cities) > 1 else None
                 
-                # Look for "from" before this city
-                if city_word_idx > 0 and any(indicator in words[city_word_idx-1] for indicator in from_indicators):
-                    source = city_iata
-                # Look for "to" before this city
-                elif city_word_idx > 0 and any(indicator in words[city_word_idx-1] for indicator in to_indicators):
-                    destination = city_iata
-                # Look for "to" after previous words
-                elif city_word_idx > 1 and any(indicator in words[city_word_idx-2:city_word_idx] for indicator in to_indicators):
-                    destination = city_iata
-        
-        # Fallback: if still not determined, use position but be smarter about it
-        if not source and not destination:
-            # Default to first city as source, second as destination
-            source = found_cities_sorted[0][0]
-            destination = found_cities_sorted[1][0]
-        elif not source:
-            # Find the other city
-            for city_iata, _, _ in found_cities_sorted:
-                if city_iata != destination:
-                    source = city_iata
-                    break
-        elif not destination:
-            # Find the other city
-            for city_iata, _, _ in found_cities_sorted:
-                if city_iata != source:
-                    destination = city_iata
-                    break
-        
-        # Ensure they're different
-        if source == destination and len(found_cities_sorted) > 2:
-            destination = found_cities_sorted[2][0]
-        elif source == destination:
+                single_city = found_cities[0][0]
+                
+                # Determine if we're changing source or destination based on context
+                if any(indicator in analysis_text for indicator in ["from", "leaving", "departing", "starting"]):
+                    # It's a source change - preserve destination from context
+                    source = single_city
+                    destination = context_dest
+                elif any(indicator in analysis_text for indicator in to_indicators + ["going", "want to go"]):
+                    # It's a destination change - preserve source from context
+                    source = context_source
+                    destination = single_city
+                else:
+                    # No clear indicators - use heuristics
+                    # If context has both source and dest, and single city matches one, we're probably changing the other
+                    if context_source and context_dest:
+                        if single_city == context_source:
+                            # Same source mentioned, might be confirming or we need more context
+                            source = single_city
+                            destination = context_dest
+                        elif single_city == context_dest:
+                            # Same destination mentioned
+                            source = context_source
+                            destination = single_city
+                        else:
+                            # New city - default to changing source
+                            source = single_city
+                            destination = context_dest
+                    elif context_source and not context_dest:
+                        # Only source in context - new city is likely destination
+                        source = context_source
+                        destination = single_city
+                    elif context_dest and not context_source:
+                        # Only destination in context - new city is likely source
+                        source = single_city
+                        destination = context_dest
+                    else:
+                        # No context - default behavior
+                        source = single_city
+            else:
+                # Original logic for non-modification queries
+                # Check context for clues in analysis text
+                if any(word in analysis_text for word in to_indicators + ["going", "want to go"]):
+                    destination = found_cities[0][0]
+                else:
+                    source = found_cities[0][0]
+        else:
+            # Multiple cities - first is typically source, second is destination
+            source = found_cities[0][0]
+            destination = found_cities[1][0]
+    
+    # Handle cases where we have indicators but cities were assigned to wrong slots
+    if source and not destination and len(found_cities) > 1:
+        # If we have a source but no destination, and there are multiple cities
+        for city_info in found_cities:
+            if city_info[0] != source:
+                destination = city_info[0]
+                break
+    
+    elif destination and not source and len(found_cities) > 1:
+        # If we have a destination but no source, and there are multiple cities
+        for city_info in found_cities:
+            if city_info[0] != destination:
+                source = city_info[0]
+                break
+    
+    # Ensure source != destination
+    if source == destination:
+        if len(found_cities) > 1:
+            # If they're the same, reassign based on position
+            source = found_cities[0][0]
+            destination = found_cities[1][0]
+        else:
             destination = None
-        
-        return source, destination
+    
+    return source, destination
 
 def extract_flight_type(query):
     """
@@ -401,6 +457,50 @@ def extract_flight_type(query):
     Returns 'return' or 'one_way'
     """
     query_lower = query.lower()
+    
+    # Special handling for "Now" modification queries
+    is_modification_query = " now " in query_lower or query_lower.strip().startswith("now ")
+    
+    if is_modification_query:
+        # Find the "Now" part and focus flight type extraction on it
+        if " now " in query_lower:
+            now_start = query_lower.find(" now ") + 5  # +5 to skip " now "
+        else:
+            now_start = 4  # Skip "now "
+            
+        now_part = query_lower[now_start:].strip()
+        
+        # Check for explicit flight type changes in the modification
+        one_way_change_patterns = [
+            r'(?:no,?\s+)?(?:i\s+)?want\s+one\s+way(?:\s+flight)?',
+            r'(?:no,?\s+)?(?:i\s+)?(?:want\s+)?one\s+way(?:\s+flight)?',
+            r'(?:change\s+to\s+)?one\s+way',
+            r'not\s+return',
+            r'not\s+round\s+trip'
+        ]
+        
+        return_change_patterns = [
+            r'(?:i\s+will\s+)?(?:come\s+)?back\s+(?:to\s+\w+\s+)?on\s+',
+            r'(?:i\s+will\s+)?return\s+(?:to\s+\w+\s+)?on\s+',
+            r'(?:change\s+to\s+)?(?:round\s+trip|return)',
+            r'(?:make\s+it\s+)?(?:round\s+trip|return)'
+        ]
+        
+        # Check for one-way change patterns
+        for pattern in one_way_change_patterns:
+            if re.search(pattern, now_part):
+                return "one_way"
+        
+        # Check for return change patterns  
+        for pattern in return_change_patterns:
+            if re.search(pattern, now_part):
+                return "return"
+        
+        # If no explicit change in modification, analyze the full query for context
+        text_for_analysis = query_lower
+    else:
+        # Use full text for normal queries
+        text_for_analysis = query_lower
     
     # Strong explicit return flight indicators
     strong_return_keywords = [
@@ -410,7 +510,7 @@ def extract_flight_type(query):
     
     # Check for explicit return keywords first
     for keyword in strong_return_keywords:
-        if keyword in query_lower:
+        if keyword in text_for_analysis:
             return "return"
     
     # Very specific return patterns - only strong indicators
@@ -432,14 +532,14 @@ def extract_flight_type(query):
     ]
     
     for pattern in return_patterns:
-        if re.search(pattern, query_lower):
+        if re.search(pattern, text_for_analysis):
             return "return"
     
     # Check for "between" with locations - strong return indicator
-    if "between" in query_lower:
+    if "between" in text_for_analysis:
         # Look for "between [city] and [city]" or "between [date] and [date]"
         between_pattern = r'between\s+\w+.*?and\s+\w+'
-        if re.search(between_pattern, query_lower):
+        if re.search(between_pattern, text_for_analysis):
             return "return"
     
     # Check for specific temporal return indicators
@@ -505,15 +605,47 @@ def extract_flight_type(query):
 def extract_flight_class(query):
     """
     Extract flight class from query. Returns 'economy' by default.
-    Simplified version for use with _extract_basic_travel_info.
+    Supported classes: economy, business, first, premium_economy
+    Uses multiple strategies with fallbacks for robust extraction.
+    Handles "Now" modification queries for flight class changes.
     """
-    # Check for negation in modification queries
-    if "now" in query.lower():
-        has_negation, cleaned_text = detect_negation_in_modification(query)
-        if has_negation:
-            query = cleaned_text
-    
     query_lower = query.lower()
+    
+    # Special handling for "Now" modification queries - extract class from the modification part
+    is_modification_query = " now " in query_lower or query_lower.strip().startswith("now ")
+    
+    if is_modification_query:
+        
+        # Find the "Now" part and focus class extraction on it
+        if " now " in query_lower:
+            now_start = query_lower.find(" now ") + 5  # +5 to skip " now "
+        else:
+            now_start = 4  # Skip "now "
+            
+        now_part = query_lower[now_start:].strip()
+        
+        # Check if the "Now" part contains any class information
+        class_indicators = [
+            'class', 'first', 'business', 'economy', 'premium', 'coach', 'cabin',
+            'executive', 'comfort', 'standard', 'basic', 'upgrade'
+        ]
+        
+        has_class_info = any(indicator in now_part for indicator in class_indicators)
+        
+        if has_class_info:
+            # Handle negation patterns first
+            negation_result = handle_class_negation(now_part)
+            if negation_result:
+                return negation_result
+            
+            # Use the "Now" part for class extraction
+            text_for_parsing = now_part
+        else:
+            # No class info in "Now" part, use original text to preserve existing class
+            text_for_parsing = query_lower
+    else:
+        # Use full text for normal queries
+        text_for_parsing = query_lower
     
     # Flight class mappings - most specific first
     class_mappings = {
@@ -528,25 +660,204 @@ def extract_flight_class(query):
         
         # Premium Economy variations
         "premium_economy": [
-            "premium economy", "premium-economy", "premiumeconomy", "premium eco",
-            "premium", "comfort", "comfort class", "premium class", "y+ class"
+            "premium economy", "premium-economy", "premiumeconomy", "premium eco", 
+            "premium", "w class", "comfort plus", "economy plus", "economy+", 
+            "extra comfort", "preferred seating", "premium seating"
         ],
         
-        # Economy variations
+        # Economy variations (explicit mentions)
         "economy": [
             "economy class", "economy-class", "economyclass", "eco class", "economy", 
-            "coach", "coach class", "standard", "basic", "y class", "main cabin"
+            "y class", "coach", "main cabin", "standard", "regular", "basic economy"
         ]
     }
     
-    # Check each class mapping for matches
-    for flight_class, keywords in class_mappings.items():
+    # Strategy 1: Direct keyword matching (longest phrases first)
+    all_keywords = []
+    for class_name, keywords in class_mappings.items():
         for keyword in keywords:
-            if keyword in query_lower:
-                return flight_class
+            all_keywords.append((keyword, class_name))
     
-    # Default to economy if no class found
+    # Sort by length (longest first) to match more specific phrases
+    all_keywords.sort(key=lambda x: len(x[0]), reverse=True)
+    
+    for keyword, class_name in all_keywords:
+        if keyword in text_for_parsing:
+            return class_name
+    
+    # Strategy 2: NLP-based extraction using spaCy
+    try:
+        doc = nlp(text_for_parsing)
+        
+        # Look for class-related entities or patterns
+        class_indicators = ["class", "cabin", "seat", "seating", "service"]
+        
+        for token in doc:
+            if token.text in class_indicators:
+                # Look for adjectives or descriptors before/after class indicators
+                context_window = []
+                
+                # Get context around the class indicator (2 tokens before and after)
+                start_idx = max(0, token.i - 2)
+                end_idx = min(len(doc), token.i + 3)
+                
+                for context_token in doc[start_idx:end_idx]:
+                    context_window.append(context_token.text.lower())
+                
+                context_text = " ".join(context_window)
+                
+                # Check if any class keywords appear in context
+                for keyword, class_name in all_keywords:
+                    if keyword in context_text:
+                        return class_name
+        
+        # Look for luxury/comfort indicators that might suggest higher classes
+        luxury_indicators = {
+            "business": ["professional", "corporate", "executive", "business trip", "work travel"],
+            "first": ["luxury", "luxurious", "premium service", "finest", "exclusive", "vip"],
+            "premium_economy": ["comfortable", "extra space", "more room", "upgrade", "better seat"]
+        }
+        
+        query_tokens = [token.text.lower() for token in doc]
+        query_text_joined = " ".join(query_tokens)
+        
+        for class_name, indicators in luxury_indicators.items():
+            for indicator in indicators:
+                if indicator in query_text_joined:
+                    return class_name
+                    
+    except Exception:
+        pass
+    
+    # Strategy 3: Pattern-based extraction
+    class_patterns = [
+        # Patterns like "in business class", "book first class"
+        (r'\b(?:in|book|reserve|want|need|prefer)\s+(\w+(?:\s+\w+)?)\s+class\b', 1),
+        (r'\b(\w+(?:\s+\w+)?)\s+class\s+(?:seat|ticket|flight|fare)\b', 1),
+        (r'\b(?:fly|travel)\s+(\w+(?:\s+\w+)?)\s+class\b', 1),
+        
+        # Patterns like "business class flight", "first class ticket"
+        (r'\b(\w+(?:\s+\w+)?)\s+class\s+(?:flight|ticket|booking)\b', 1),
+        
+        # More flexible patterns
+        (r'\b(first|business|economy|premium)\s+(?:class\s+)?(?:seat|ticket|flight|cabin)\b', 1),
+        (r'\b(?:seat|ticket|flight|cabin)\s+(?:in\s+)?(\w+(?:\s+\w+)?)\s+class\b', 1),
+    ]
+    
+    for pattern, group_idx in class_patterns:
+        matches = re.findall(pattern, text_for_parsing)
+        if matches:
+            for match in matches:
+                extracted_class = match.strip() if isinstance(match, str) else match[group_idx-1].strip()
+                
+                # Map extracted class to standard class names
+                for class_name, keywords in class_mappings.items():
+                    if extracted_class in keywords or any(keyword.startswith(extracted_class) for keyword in keywords):
+                        return class_name
+    
+    # Strategy 4: Fuzzy matching for misspellings or variations
+    try:
+        # Extract potential class-related words
+        class_related_words = []
+        doc = nlp(text_for_parsing)
+        
+        for token in doc:
+            if (token.pos_ in ["NOUN", "ADJ"] and 
+                len(token.text) > 3 and 
+                any(indicator in token.text for indicator in ["class", "eco", "biz", "prem", "first", "bus"])):
+                class_related_words.append(token.text)
+        
+        # Check fuzzy matching against known class terms
+        all_class_terms = []
+        for keywords in class_mappings.values():
+            all_class_terms.extend(keywords)
+        
+        for word in class_related_words:
+            best_match, score, _ = process.extractOne(word, all_class_terms)
+            if score > 75:  # High threshold for class matching
+                for class_name, keywords in class_mappings.items():
+                    if best_match in keywords:
+                        return class_name
+                        
+    except Exception:
+        pass
+    
+    # Strategy 5: Context-based inference
+    # Look for price-related clues or luxury indicators
+    context_clues = {
+        "first": ["expensive", "costly", "luxury", "premium service", "champagne", "lie flat"],
+        "business": ["work", "corporate", "meeting", "conference", "professional", "lounge access"],
+        "premium_economy": ["upgrade", "extra legroom", "more space", "comfortable", "priority boarding"]
+    }
+    
+    for class_name, clues in context_clues.items():
+        for clue in clues:
+            if clue in text_for_parsing:
+                # Only return if there's also some flight-related context
+                flight_context = ["flight", "fly", "travel", "ticket", "book", "reserve"]
+                if any(context in text_for_parsing for context in flight_context):
+                    return class_name
+    
+    # Strategy 6: Abbreviation detection
+    abbreviation_map = {
+        "f": "first",
+        "j": "business", 
+        "c": "business",
+        "w": "premium_economy",
+        "y": "economy"
+    }
+    
+    # Look for single letter class codes
+    single_letter_pattern = r'\b([fjcwy])\s+class\b'
+    matches = re.findall(single_letter_pattern, text_for_parsing)
+    if matches:
+        letter = matches[0].lower()
+        if letter in abbreviation_map:
+            return abbreviation_map[letter]
+    
+    # Default fallback - return economy
     return "economy"
+
+
+def handle_class_negation(now_part):
+    """
+    Handle negation patterns in modification queries for flight class.
+    Returns the appropriate class if negation is detected, None otherwise.
+    """
+    # Negation patterns for flight class
+    class_negation_patterns = [
+        r'economy\s+not\s+business(?:\s+class)?',  # "economy not business class"
+        r'not\s+business(?:\s+class)?',            # "not business class"
+        r'not\s+first(?:\s+class)?',               # "not first class"
+        r'not\s+economy(?:\s+class)?',             # "not economy class"
+        r'business\s+not\s+economy(?:\s+class)?',  # "business not economy class"
+    ]
+    
+    for pattern in class_negation_patterns:
+        match = re.search(pattern, now_part)
+        if match:
+            # Extract the positive class from the pattern
+            if 'economy not business' in match.group():
+                return "economy"
+            elif 'business not economy' in match.group():
+                return "business"
+            elif 'not business' in match.group():
+                # Default to economy when rejecting business
+                return "economy"
+            elif 'not first' in match.group():
+                # Default to economy when rejecting first
+                return "economy"
+            elif 'not economy' in match.group():
+                # Look for other class mentions in the text
+                if 'business' in now_part or 'executive' in now_part:
+                    return "business"
+                elif 'first' in now_part:
+                    return "first"
+                else:
+                    return "business"  # Default upgrade from economy
+    
+    return None
+
 
 def extract_passenger_count(query: str) -> Dict[str, int]:
     """
@@ -809,9 +1120,59 @@ def fallback_extraction(query: str) -> Dict[str, int]:
         'infants': infants
     }
 
+def handle_date_negation(full_query, now_part):
+    """
+    Handle negation patterns in modification queries for dates.
+    Returns the appropriate date(s) if negation is detected, None otherwise.
+    """
+    today = datetime.now()
+    
+    # Negation patterns for dates
+    date_negation_patterns = [
+        r'not\s+(\d+)(?:st|nd|rd|th)?\s+aug(?:ust)?',  # "not 5th aug"
+        r'not\s+(today|tomorrow|day after tomorrow)',   # "not today"
+        r'(\d+)(?:st|nd|rd|th)?\s+aug(?:ust)?\s+not\s+(\d+)(?:st|nd|rd|th)?\s+aug(?:ust)?',  # "6th aug not 5th aug"
+    ]
+    
+    for pattern in date_negation_patterns:
+        match = re.search(pattern, now_part)
+        if match:
+            groups = match.groups()
+            
+            if len(groups) == 2 and groups[1]:  # Pattern like "6th aug not 5th aug"
+                new_date_str = groups[0].strip()
+                # Try to parse the new date
+                try:
+                    # Construct full date string for current year
+                    cal = parsedatetime.Calendar()
+                    date_text = f"{new_date_str} august {today.year}"
+                    time_struct, parse_status = cal.parse(date_text)
+                    if parse_status >= 1:
+                        parsed_date = datetime(*time_struct[:6])
+                        return parsed_date.strftime("%Y-%m-%d")
+                except:
+                    pass
+                    
+            elif len(groups) >= 1 and groups[0]:  # Pattern like "not 5th aug"
+                # This means we're rejecting a specific date, but we need a new date from context
+                # Look for other date mentions in the now part
+                date_extraction_text = re.sub(pattern, '', now_part).strip()
+                if date_extraction_text:
+                    try:
+                        cal = parsedatetime.Calendar()
+                        time_struct, parse_status = cal.parse(date_extraction_text)
+                        if parse_status >= 1:
+                            parsed_date = datetime(*time_struct[:6])
+                            if parsed_date.year <= today.year + 2:  # Reasonable year check
+                                return parsed_date.strftime("%Y-%m-%d")
+                    except:
+                        pass
+    
+    return None
+
 def extract_dates(text, flight_type=None):
     """
-    FIXED: Date extraction function that properly handles age mentions, Now modifications, and negation
+    FIXED: Date extraction function that properly handles age mentions and Now modifications
     """
     original_text = text.lower()
     original_text = correct_spelling(original_text)
@@ -830,32 +1191,25 @@ def extract_dates(text, flight_type=None):
             
         now_part = original_text[now_start:].strip()
         
-        # NEGATION HANDLING: Check for negation in the modification part
-        has_negation, cleaned_now_part = detect_negation_in_modification(now_part)
+        # Check if the "Now" part contains any date information
+        # Look for common date indicators
+        date_indicators = [
+            'today', 'tomorrow', 'day after tomorrow', 'next', 'this', 
+            'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+            'january', 'february', 'march', 'april', 'may', 'june',
+            'july', 'august', 'september', 'october', 'november', 'december',
+            'on ', 'by ', 'at ', r'\d+', 'st', 'nd', 'rd', 'th'
+        ]
         
-        if has_negation:
-            # Use cleaned text for extraction
-            text_for_parsing = cleaned_now_part
+        has_date_info = any(indicator in now_part for indicator in date_indicators[:12]) or \
+                       any(re.search(pattern, now_part) for pattern in [r'\d+', r'\b(on|by|at)\b'])
+        
+        if has_date_info:
+            # Use the "Now" part for date extraction
+            text_for_parsing = now_part
         else:
-            # Check if the "Now" part contains any date information
-            # Look for common date indicators
-            date_indicators = [
-                'today', 'tomorrow', 'day after tomorrow', 'next', 'this', 
-                'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
-                'january', 'february', 'march', 'april', 'may', 'june',
-                'july', 'august', 'september', 'october', 'november', 'december',
-                'on ', 'by ', 'at ', r'\d+', 'st', 'nd', 'rd', 'th'
-            ]
-            
-            has_date_info = any(indicator in now_part for indicator in date_indicators[:12]) or \
-                           any(re.search(pattern, now_part) for pattern in [r'\d+', r'\b(on|by|at)\b'])
-            
-            if has_date_info:
-                # Use the "Now" part for date extraction
-                text_for_parsing = now_part
-            else:
-                # No date info in "Now" part, use original text to preserve existing dates
-                text_for_parsing = original_text
+            # No date info in "Now" part, use original text to preserve existing dates
+            text_for_parsing = original_text
     else:
         # Use full text for normal queries
         text_for_parsing = original_text
@@ -868,6 +1222,12 @@ def extract_dates(text, flight_type=None):
     # ADDED: Remove month age mentions like "15 month", "18 months old", etc.
     text_cleaned = re.sub(r'\b\d+\s+months?\s+(?:old)?\b', '', text_cleaned)
     text_cleaned = re.sub(r'\b\d+\s+month\s+(?:old)?\b', '', text_cleaned)
+    
+    # ADDED: Handle negation patterns for dates
+    if is_modification_query:
+        negation_result = handle_date_negation(original_text, now_part)
+        if negation_result:
+            return negation_result
     
     # Special date mapping
     special_date_map = {
@@ -888,7 +1248,7 @@ def extract_dates(text, flight_type=None):
     # ---- RETURN FLIGHT HANDLING ---- #
     if flight_type == "return":
         # SPECIAL HANDLING: For "Now" modification queries, check if it's specifically for return date
-        if is_modification_query and (has_date_info if not has_negation else True):
+        if is_modification_query and has_date_info:
             # Check if the modification is specifically about return date
             return_change_patterns = [
                 r'change\s+return\s+date\s+to\s+(.+)',
@@ -906,18 +1266,12 @@ def extract_dates(text, flight_type=None):
                 r'depart\s+on\s+(.+)',
                 r'leave\s+on\s+(.+)',
                 r'departing\s+on\s+(.+)',
-                r'go\s+on\s+(.+)',
-                r'change\s+(?:the\s+)?departure\s+(?:date\s+)?to\s+(.+)',
-                r'move\s+departure\s+(?:date\s+)?to\s+(.+)',
-                r'update\s+departure\s+(?:date\s+)?to\s+(.+)'
+                r'go\s+on\s+(.+)'
             ]
-            
-            # Use the appropriate text for pattern matching
-            pattern_text = text_for_parsing if not has_negation else cleaned_now_part
             
             # Check for return date change
             for pattern in return_change_patterns:
-                match = re.search(pattern, pattern_text)
+                match = re.search(pattern, now_part)
                 if match:
                     date_str = re.sub(r'\b(of|the)\b', '', match.group(1).strip().lower())
                     if date_str in special_date_map:
@@ -929,6 +1283,7 @@ def extract_dates(text, flight_type=None):
                             if parse_status >= 1:
                                 parsed_date = datetime(*time_struct[:6])
                                 if parsed_date.year <= today.year + 2:
+                                    print(f"✅ Final parsed date: {parsed_date.strftime('%Y-%m-%d')} (today is {today.strftime('%Y-%m-%d')})")
                                     return None, parsed_date.strftime("%Y-%m-%d")  # departure=None, return=extracted_date
                         except Exception as e:
                             print(f"❌ Error parsing return date '{date_str}': {e}")
@@ -936,7 +1291,7 @@ def extract_dates(text, flight_type=None):
             
             # Check for departure date change
             for pattern in departure_change_patterns:
-                match = re.search(pattern, pattern_text)
+                match = re.search(pattern, now_part)
                 if match:
                     date_str = re.sub(r'\b(of|the)\b', '', match.group(1).strip().lower())
                     if date_str in special_date_map:
@@ -948,6 +1303,7 @@ def extract_dates(text, flight_type=None):
                             if parse_status >= 1:
                                 parsed_date = datetime(*time_struct[:6])
                                 if parsed_date.year <= today.year + 2:
+                                    print(f"✅ Final parsed date: {parsed_date.strftime('%Y-%m-%d')} (today is {today.strftime('%Y-%m-%d')})")
                                     return parsed_date.strftime("%Y-%m-%d"), None  # departure=extracted_date, return=None
                         except Exception as e:
                             print(f"❌ Error parsing departure date '{date_str}': {e}")
@@ -1018,14 +1374,11 @@ def extract_dates(text, flight_type=None):
             ("return", [
                 r'(?:come\s+back|return|back).*?(?:on\s+|must\s+on\s+|by\s+)([^,\.]+)',
                 r'(?:must\s+on|need\s+to\s+(?:come\s+)?back.*?on)\s+([^,\.]+)',
-                r'(?:return.*?on|back.*?on)\s+([^,\.]+)',
-                r'returning\s+(?:on\s+)?([^,\s]+(?:\s+[^,\s]+)*?)(?=\s*$|,|\.|departing)',
+                r'(?:return.*?on|back.*?on)\s+([^,\.]+)'
             ]),
             ("departure", [
-                r'(?:depart|leave).*?(?:on\s+)([^,\.]+)',
-                r'(?:on\s+)([^,\.]+).*?(?:going|travel|depart|leave)',
-                r'departing\s+(?:on\s+)?([^,\s]+(?:\s+[^,\s]+)*?)(?=\s+returning|\s+back|$|,|\.)',
-                r'depart\s+(?:on\s+)?([^,\s]+(?:\s+[^,\s]+)*?)(?=\s+returning|\s+back|$|,|\.)',
+                r'(?:depart|leave|going|travel).*?(?:on\s+)([^,\.]+)',
+                r'(?:on\s+)([^,\.]+).*?(?:going|travel|depart|leave)'
             ])
         ]
 
@@ -1176,125 +1529,12 @@ def validate_airline_extraction(query, extracted_airline):
 def extract_travel_info(query):
     """
     Main function to extract all travel information from a query.
-    Enhanced with negation handling and context preservation.
     
     Args:
         query (str): User's travel query
     
     Returns:
         dict: Dictionary containing all extracted travel information
-    """
-    result = {}
-    
-    # Check if this is a modification query with negation
-    is_modification_query = " now " in query.lower() or query.lower().strip().startswith("now ")
-    
-    if is_modification_query:
-        # Split into original context and modification parts
-        query_lower = query.lower()
-        if " now " in query_lower:
-            original_part = query[:query_lower.find(" now ")].strip()
-            modification_part = query[query_lower.find(" now "):].strip()
-        else:
-            original_part = ""
-            modification_part = query.strip()
-        
-        # Extract information from original context first (if exists)
-        original_info = {}
-        if original_part:
-            original_info = _extract_basic_travel_info(original_part)
-        
-        # Extract information from modification part
-        modification_info = _extract_basic_travel_info(modification_part)
-        
-        # Merge information, giving priority to modification (negated content)
-        result = original_info.copy()
-        
-        # Special handling for date fields in return flights
-        if original_info.get('flight_type') == 'return' and modification_info:
-            # If original had both departure and return dates, preserve them unless explicitly changed
-            if 'departure_date' in original_info and 'return_date' in original_info:
-                # Check if modification specifically targets departure or return date
-                mod_text = modification_part.lower()
-                is_departure_change = any(pattern in mod_text for pattern in [
-                    'departure', 'departing', 'depart', 'leave', 'going'
-                ]) and not any(pattern in mod_text for pattern in ['return', 'back', 'coming'])
-                
-                is_return_change = any(pattern in mod_text for pattern in [
-                    'return', 'returning', 'back', 'coming back'
-                ]) and not any(pattern in mod_text for pattern in ['departure', 'departing', 'depart'])
-                
-                if is_departure_change and modification_info.get('departure_date'):
-                    # Change departure, preserve return
-                    result['departure_date'] = modification_info['departure_date']
-                    result['return_date'] = original_info['return_date']
-                elif is_return_change and modification_info.get('return_date'):
-                    # Change return, preserve departure
-                    result['departure_date'] = original_info['departure_date']
-                    result['return_date'] = modification_info['return_date']
-                elif modification_info.get('departure_date') and not modification_info.get('return_date'):
-                    # Got departure date only, preserve original return
-                    result['departure_date'] = modification_info['departure_date']
-                    result['return_date'] = original_info['return_date']
-                elif modification_info.get('return_date') and not modification_info.get('departure_date'):
-                    # Got return date only, preserve original departure
-                    result['departure_date'] = original_info['departure_date']
-                    result['return_date'] = modification_info['return_date']
-        
-        # Handle other fields
-        for key, value in modification_info.items():
-            if key in ['departure_date', 'return_date']:
-                # Skip dates as they were handled above
-                continue
-                
-            if value is not None and value != '' and value != 'null':
-                # Special handling for flight_type changes
-                if key == 'flight_type':
-                    # Check if modification explicitly mentions one-way or return
-                    mod_text = modification_part.lower()
-                    has_return_indicators = any(indicator in mod_text for indicator in [
-                        'return', 'round trip', 'round-trip', 'roundtrip', 'two way', 'two-way'
-                    ])
-                    has_oneway_indicators = any(indicator in mod_text for indicator in [
-                        'one way', 'one-way', 'oneway', 'single', 'just one way', 'only one way'
-                    ])
-                    
-                    if has_return_indicators:
-                        result[key] = 'return'
-                    elif has_oneway_indicators:
-                        result[key] = 'one_way'
-                    elif value != original_info.get('flight_type'):
-                        # Only change if it's different from original
-                        result[key] = value
-                    # Otherwise, keep original flight_type
-                else:
-                    result[key] = value
-            elif key not in ['departure_date', 'return_date', 'flight_type'] and value is not None:
-                # For other non-date fields, update even if None (but not for dates or flight_type)
-                result[key] = value
-    else:
-        # Normal extraction for non-modification queries
-        result = _extract_basic_travel_info(query)
-    
-    # Set default values if not specified
-    if not result.get("flight_class"):
-        result["flight_class"] = "economy"
-    if not result.get("flight_type"):
-        result["flight_type"] = "one_way"
-    if not result.get('passengers'):
-        result['passengers'] = {"adults": 1, "children": 0, "infants": 0}
-        
-    # Also add total passenger count for convenience
-    if result.get('passengers'):
-        total_passengers = result["passengers"]["adults"] + result["passengers"]["children"] + result["passengers"]["infants"]
-        result["total_passengers"] = total_passengers
-    
-    return result
-
-def _extract_basic_travel_info(query):
-    """
-    Basic travel information extraction without modification handling.
-    Used internally by extract_travel_info.
     """
     result = {}
     
@@ -1344,10 +1584,16 @@ def _extract_basic_travel_info(query):
     try:
         passenger_counts = extract_passenger_count(query)
         result["passengers"] = passenger_counts
+        
+        # Also add total passenger count for convenience
+        total_passengers = passenger_counts["adults"] + passenger_counts["children"] + passenger_counts["infants"]
+        result["total_passengers"] = total_passengers
     except Exception as e:
         print(f"Warning: Passenger count extraction failed: {e}")
         # Fallback to default
         result["passengers"] = {"adults": 1, "children": 0, "infants": 0}
+        result["total_passengers"] = 1
+    print("debug", result)
     return result
 
 # Enhanced command-line interface
