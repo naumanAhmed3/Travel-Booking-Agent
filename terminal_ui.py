@@ -357,30 +357,6 @@ Ready to plan your next adventure? Just tell me where you'd like to go! 🌍"""
     
     def show_conversation_tips(self):
         """Show tips for natural conversation"""
-        tips = f"""
-{Colors.BOLD}{Colors.BLUE}💡 Tips for chatting with me:{Colors.END}
-
-{Colors.GREEN}✅ Natural examples:{Colors.END}
-  • "I want to fly to Dubai next Friday"
-  • "Can you find me a cheap flight from Lahore to Karachi?"
-  • "I need business class tickets for 2 people to Islamabad"
-  • "Actually, make that return tickets instead"
-
-{Colors.GREEN}✅ I understand:{Colors.END}
-  • Casual language and typos
-  • Changes of mind ("actually, let me change that...")
-  • Multiple requests in one message
-  • Questions about options and alternatives
-
-{Colors.GREEN}✅ You can say:{Colors.END}
-  • "That looks perfect!" (to confirm)
-  • "Can you change the date?" (to modify)
-  • "What airlines do you have?" (to ask questions)
-  • "Never mind, let's start over" (to restart)
-
-Just chat naturally - I'm here to help! 😊
-"""
-        print(tips)
     
     def run(self):
         """Main application entry point"""

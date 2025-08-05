@@ -442,6 +442,127 @@ def handle_negation_in_cities(full_query, now_part):
     
     return None
 
+def handle_city_modifications_with_groq(full_query, now_part):
+    """
+    GROQ-powered city modification handler for negations and swaps.
+    Returns (source, destination) tuple if modification is detected, None otherwise.
+    """
+    # Extract context from before "now"
+    if " Now " in full_query:
+        before_now = full_query.split(" Now ")[0]
+    elif " now " in full_query:
+        before_now = full_query.split(" now ")[0]
+    else:
+        before_now = ""
+    
+    # Get context cities using multiword extraction to avoid recursion
+    context_cities = extract_cities_multiword(before_now) if before_now else []
+    context_source = context_cities[0][0] if context_cities else None
+    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
+    
+    # Initialize Groq client
+    try:
+        client = Groq(api_key=os.environ.get('GROQ_API_KEY'))
+    except Exception as e:
+        print(f"Error initializing Groq client for city modifications: {e}")
+        # Fallback to original regex-based function
+        return handle_negation_in_cities(full_query, now_part)
+    
+    # Create city list for reference
+    available_cities = list(city_to_iata.keys()) + list(iata_codes)
+    city_context = f"Available cities: {', '.join(sorted(city_to_iata.keys()))}"
+    iata_context = f"IATA codes: {', '.join(sorted(iata_codes))}"
+    
+    # Build context info
+    context_info = ""
+    if context_source or context_dest:
+        context_info = f"CURRENT BOOKING: From {context_source or 'unknown'} to {context_dest or 'unknown'}"
+    
+    prompt = f"""
+Analyze this travel modification request and determine if it's a city change, swap, or negation.
+
+CONTEXT:
+{context_info}
+{city_context}
+{iata_context}
+
+MODIFICATION REQUEST: "{now_part}"
+FULL QUERY: "{full_query}"
+
+TASK: Determine the modification type and return the new source/destination cities.
+
+MODIFICATION TYPES:
+1. SWAP/REVERSE: "vice versa", "other way around", "reverse", "swap", "flip", "opposite direction", "turn around", "backward"
+2. SOURCE_CHANGE: "not from X but Y", "from Y not X", "no from Y", changing departure city
+3. DESTINATION_CHANGE: "not to X but Y", "to Y not X", "no to Y", changing arrival city
+4. NEGATION: "not X but Y", "X not Y", rejecting one city for another
+
+RULES:
+- For SWAP: If current is "LHE to KHI", return "KHI to LHE" 
+- For SOURCE_CHANGE: Keep destination, change source
+- For DESTINATION_CHANGE: Keep source, change destination
+- For NEGATION: Determine which city is being replaced based on context
+- Always use IATA codes (3-letter airport codes)
+- City names should be converted to IATA codes
+
+EXAMPLES:
+Input: "vice versa" with context "LHE to KHI"
+Output: {{"modification_type": "SWAP", "source": "KHI", "destination": "LHE"}}
+
+Input: "not from lahore but karachi" with context "LHE to ISB"  
+Output: {{"modification_type": "SOURCE_CHANGE", "source": "KHI", "destination": "ISB"}}
+
+Input: "not to islamabad but rawalpindi" with context "LHE to ISB"
+Output: {{"modification_type": "DESTINATION_CHANGE", "source": "LHE", "destination": "ISB"}}
+
+Return ONLY valid JSON without explanations:
+{{"modification_type": "TYPE", "source": "XXX", "destination": "YYY"}}
+
+If no modification detected, return: {{"modification_type": "NONE"}}
+"""
+
+    try:
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            temperature=0.1,
+            max_tokens=200,
+            top_p=0.9
+        )
+        
+        response_text = chat_completion.choices[0].message.content.strip()
+        
+        # Extract and clean JSON
+        modification_data = extract_and_clean_json(response_text)
+        
+        modification_type = modification_data.get('modification_type', 'NONE')
+        
+        if modification_type == 'NONE':
+            return None
+            
+        # Validate and return the cities
+        source = modification_data.get('source')
+        destination = modification_data.get('destination')
+        
+        # Convert city names to IATA if needed
+        if source and len(source) != 3:
+            source = city_to_iata.get(source.lower(), source)
+        if destination and len(destination) != 3:
+            destination = city_to_iata.get(destination.lower(), destination)
+        
+        # Validate IATA codes
+        if source and source not in iata_codes:
+            source = None
+        if destination and destination not in iata_codes:
+            destination = None
+            
+        return (source, destination)
+        
+    except Exception as e:
+        print(f"Error with Groq API for city modifications: {e}")
+        # Fallback to original regex-based function
+        return handle_negation_in_cities(full_query, now_part)
+
 def extract_cities(query):
     query_lower = query.lower()
     
@@ -459,8 +580,8 @@ def extract_cities(query):
             
         now_part = query_lower[now_start:].strip()
         
-        # Handle negation patterns in modification queries
-        negation_handled_cities = handle_negation_in_cities(query_lower, now_part)
+        # Handle negation patterns in modification queries using GROQ
+        negation_handled_cities = handle_city_modifications_with_groq(query_lower, now_part)
         if negation_handled_cities:
             return negation_handled_cities
         
@@ -1173,9 +1294,6 @@ def extract_and_clean_json(response_text: str) -> dict:
         
         # Step 3: Clean and fix common JSON issues
         json_str = json_str.replace("'", '"')  # Single to double quotes
-        
-        # Fix unquoted keys (but be careful not to quote already quoted keys)
-        json_str = re.sub(r'(?<!")(\b\w+)(?=\s*:)', r'"\1"', json_str)
         
         # Remove trailing commas
         json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
