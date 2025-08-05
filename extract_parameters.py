@@ -158,7 +158,52 @@ def handle_negation_in_cities(full_query, now_part):
     Handle negation patterns in modification queries for cities.
     Returns (source, destination) tuple if negation is detected, None otherwise.
     """
-    # Negation patterns for cities
+    # Extract cities from the original context (before "now")
+    # Handle both "Now" and "now" cases
+    if " Now " in full_query:
+        before_now = full_query.split(" Now ")[0]
+    elif " now " in full_query:
+        before_now = full_query.split(" now ")[0]
+    else:
+        before_now = ""
+    
+    # Use extract_cities to get proper source/destination with directional logic
+    context_source, context_dest = extract_cities(before_now) if before_now else (None, None)
+    
+    # FIRST: Check for swap/reverse patterns (vice versa, other way around, etc.)
+    swap_patterns = [
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:the\s+)?other\s+way\s+around',  # "other way around", "no other way around", "i want other way around"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:the\s+)?vice\s+versa',  # "vice versa", "no vice versa", "i want vice versa"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:the\s+)?reverse(?:\s+(?:please|it|them|direction|way))?',  # "reverse", "reverse please", "reverse direction"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:to\s+)?swap\s+(?:them|it|cities)?',  # "swap", "swap them", "i want to swap"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:the\s+)?opposite\s+(?:way|direction)?',  # "opposite way", "opposite direction"
+        r'(?:tell\s+me\s+about\s+(?:the\s+)?fares?\s+)?(?:the\s+)?other\s+way\s+around',  # "tell me about the fares other way around"
+        r'(?:check\s+)?(?:the\s+)?return\s+(?:journey|trip|direction)',  # "check the return journey"
+        r'(?:what\s+about\s+)?(?:going\s+)?back(?:\s+the\s+other\s+way)?',  # "what about going back", "going back the other way"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:to\s+go\s+)?(?:the\s+)?reverse\s+direction',  # "reverse direction"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:to\s+)?flip\s+(?:it|them|cities)?',  # "flip it", "flip them"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:to\s+)?invert\s+(?:it|them|cities)?',  # "invert it", "invert them"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:the\s+)?backward(?:\s+direction)?',  # "backward", "backward direction"
+        r'(?:no,?\s+)?(?:i\s+want\s+)?(?:to\s+)?turn\s+(?:it\s+)?around',  # "turn it around", "turn around"
+    ]
+    
+    for pattern in swap_patterns:
+        if re.search(pattern, now_part.lower()):
+            # Swap source and destination from context
+            if context_source and context_dest:
+                # Swap: destination becomes source, source becomes destination
+                return context_dest, context_source
+            elif context_source:
+                # Only source in context, can't swap with nothing
+                return context_source, None
+            elif context_dest:
+                # Only destination in context, can't swap with nothing
+                return None, context_dest
+    
+    # SECOND: For backward compatibility, also extract using multiword for the negation patterns
+    context_cities = extract_cities_multiword(before_now)
+    
+    # SECOND: Check for regular negation patterns for cities
     negation_patterns = [
         r'no,?\s+not\s+from\s+(\w+)\s+but\s+(\w+)',  # "no not from lhe but isb"
         r'not\s+from\s+(\w+)\s+but\s+(?:from\s+)?(\w+)',  # "not from lhe but from isb" or "not from lhe but isb"
@@ -169,17 +214,6 @@ def handle_negation_in_cities(full_query, now_part):
         r'not\s+(\w+)',  # "not lhe"
         r'no,?\s+(?:from\s+)?(\w+)',  # "no, from isb"
     ]
-    
-    # Extract cities from the original context (before "now")
-    # Handle both "Now" and "now" cases
-    if " Now " in full_query:
-        before_now = full_query.split(" Now ")[0]
-    elif " now " in full_query:
-        before_now = full_query.split(" now ")[0]
-    else:
-        before_now = ""
-    
-    context_cities = extract_cities_multiword(before_now)
     
     # Look for negation patterns in the now part
     for i, pattern in enumerate(negation_patterns):
@@ -1444,8 +1478,24 @@ def extract_dates(text, flight_type=None):
                 match = re.search(pattern, now_part)
                 if match:
                     date_str = re.sub(r'\b(of|the)\b', '', match.group(1).strip().lower())
+                    
+                    # Extract context from before "now" to preserve departure date
+                    before_now_part = original_text[:original_text.find(" now ")].strip() if " now " in original_text else ""
+                    context_departure = None
+                    
+                    if before_now_part:
+                        # Try to extract departure date from context
+                        try:
+                            context_dates = extract_dates(before_now_part, "return")
+                            if isinstance(context_dates, tuple) and len(context_dates) == 2:
+                                context_departure = context_dates[0]  # Get departure from context
+                            elif isinstance(context_dates, str):
+                                context_departure = context_dates  # Single date from context
+                        except:
+                            pass
+                    
                     if date_str in special_date_map:
-                        return None, special_date_map[date_str]  # departure=None, return=extracted_date
+                        return context_departure, special_date_map[date_str]  # preserve departure, return=extracted_date
                     else:
                         try:
                             cal = parsedatetime.Calendar()
@@ -1454,7 +1504,7 @@ def extract_dates(text, flight_type=None):
                                 parsed_date = datetime(*time_struct[:6])
                                 if parsed_date.year <= today.year + 2:
                                     print(f"✅ Final parsed date: {parsed_date.strftime('%Y-%m-%d')} (today is {today.strftime('%Y-%m-%d')})")
-                                    return None, parsed_date.strftime("%Y-%m-%d")  # departure=None, return=extracted_date
+                                    return context_departure, parsed_date.strftime("%Y-%m-%d")  # preserve departure, return=extracted_date
                         except Exception as e:
                             print(f"❌ Error parsing return date '{date_str}': {e}")
                             pass
@@ -1464,8 +1514,22 @@ def extract_dates(text, flight_type=None):
                 match = re.search(pattern, now_part)
                 if match:
                     date_str = re.sub(r'\b(of|the)\b', '', match.group(1).strip().lower())
+                    
+                    # Extract context from before "now" to preserve return date
+                    before_now_part = original_text[:original_text.find(" now ")].strip() if " now " in original_text else ""
+                    context_return = None
+                    
+                    if before_now_part:
+                        # Try to extract return date from context
+                        try:
+                            context_dates = extract_dates(before_now_part, "return")
+                            if isinstance(context_dates, tuple) and len(context_dates) == 2:
+                                context_return = context_dates[1]  # Get return from context
+                        except:
+                            pass
+                    
                     if date_str in special_date_map:
-                        return special_date_map[date_str], None  # departure=extracted_date, return=None
+                        return special_date_map[date_str], context_return  # departure=extracted_date, preserve return
                     else:
                         try:
                             cal = parsedatetime.Calendar()
@@ -1474,9 +1538,45 @@ def extract_dates(text, flight_type=None):
                                 parsed_date = datetime(*time_struct[:6])
                                 if parsed_date.year <= today.year + 2:
                                     print(f"✅ Final parsed date: {parsed_date.strftime('%Y-%m-%d')} (today is {today.strftime('%Y-%m-%d')})")
-                                    return parsed_date.strftime("%Y-%m-%d"), None  # departure=extracted_date, return=None
+                                    return parsed_date.strftime("%Y-%m-%d"), context_return  # departure=extracted_date, preserve return
                         except Exception as e:
                             print(f"❌ Error parsing departure date '{date_str}': {e}")
+                            pass
+            
+            # Fallback: Generic return date modification for "Now return [date]" patterns
+            if not dates:  # Only if no specific patterns matched
+                # Look for "return" followed by a date in the now_part
+                generic_return_pattern = r'return\s+(day after tomorrow|tomorrow|today|\d+(?:st|nd|rd|th)?\s*\w*)'
+                return_match = re.search(generic_return_pattern, now_part.lower())
+                
+                if return_match:
+                    date_str = return_match.group(1).strip()
+                    
+                    # Extract context from before "now" to preserve departure date
+                    before_now_part = original_text[:original_text.find(" now ")].strip() if " now " in original_text else ""
+                    context_departure = None
+                    
+                    if before_now_part:
+                        try:
+                            context_dates = extract_dates(before_now_part, "return")
+                            if isinstance(context_dates, tuple) and len(context_dates) == 2:
+                                context_departure = context_dates[0]  # Get departure from context
+                            elif isinstance(context_dates, str):
+                                context_departure = context_dates  # Single date from context
+                        except:
+                            pass
+                    
+                    if date_str in special_date_map:
+                        return context_departure, special_date_map[date_str]
+                    else:
+                        try:
+                            cal = parsedatetime.Calendar()
+                            time_struct, parse_status = cal.parse(date_str)
+                            if parse_status >= 1:
+                                parsed_date = datetime(*time_struct[:6])
+                                if parsed_date.year <= today.year + 2:
+                                    return context_departure, parsed_date.strftime("%Y-%m-%d")
+                        except:
                             pass
         
         # Strategy 1: Between X and Y
@@ -1505,9 +1605,12 @@ def extract_dates(text, flight_type=None):
 
         # Strategy 2: Date pair patterns (excluding age patterns)
         date_pair_patterns = [
+            r'from\s+(\d+(?:st|nd|rd|th)?\s+\w+\s+\d{4})\s+to\s+(\d+(?:st|nd|rd|th)?\s+\w+\s+\d{4})',  # "from 1st September 2025 to 10th September 2025"
+            r'from\s+(\d+(?:st|nd|rd|th)?\s+\w+)\s+to\s+(\d+(?:st|nd|rd|th)?\s+\w+)',  # "from 1st September to 10th September"
             r'\b(today|tomorrow|day after tomorrow)\b.*?\b(?:and\s+(?:then\s+)?|then\s+)\b.*?\b(today|tomorrow|day after tomorrow)\b',
             r'\bon\s+([^,]+?)\s+and\s+(?:then\s+)?(?:on\s+)?([^,]+?)(?:\s|$|,)',
             r'\b(\d+(?:st|nd|rd|th)?(?:\s+\w+)?)\s+(?:and\s+(?:then\s+)?|then\s+|to\s+)(?:on\s+)?(\d+(?:st|nd|rd|th)?(?:\s+\w+)?)(?:\s|$|,)',
+            r'\b(today|tomorrow|day after tomorrow)\b.*?(?:and\s+)?back\s+on\s+([^,\.]+)',  # Fix for "tomorrow and back on [date]"
         ]
 
         for pattern in date_pair_patterns:
@@ -1544,11 +1647,14 @@ def extract_dates(text, flight_type=None):
             ("return", [
                 r'(?:come\s+back|return|back).*?(?:on\s+|must\s+on\s+|by\s+)([^,\.]+)',
                 r'(?:must\s+on|need\s+to\s+(?:come\s+)?back.*?on)\s+([^,\.]+)',
-                r'(?:return.*?on|back.*?on)\s+([^,\.]+)'
+                r'(?:return.*?on|back.*?on)\s+([^,\.]+)',
+                r'(?:returning)\s+([^,\.]+)',  # Added pattern for "returning [date]"
+                r'(?:return)\s+([^,\.]+)'  # Added pattern for "return [date]" without "on"
             ]),
             ("departure", [
                 r'(?:depart|leave|going|travel).*?(?:on\s+)([^,\.]+)',
-                r'(?:on\s+)([^,\.]+).*?(?:going|travel|depart|leave)'
+                r'(?:on\s+)([^,\.]+).*?(?:going|travel|depart|leave)',
+                r'(?:departing)\s+([^,\.]+)'  # Added pattern for "departing [date]"
             ])
         ]
 
@@ -1646,7 +1752,36 @@ def extract_dates(text, flight_type=None):
                     print(f"❌ Error parsing '{date_phrase}': {e}")
                     pass
 
-        # FIXED: Parse with age filtering
+        # FIXED: Parse with age filtering - try to extract just the date part first
+        # Extract specific date patterns to avoid context confusion
+        specific_date_patterns = [
+            r'on\s+(\d+(?:st|nd|rd|th)?\s+\w+)',  # "on 15th August"
+            r'(\d+(?:st|nd|rd|th)?\s+\w+)',       # "15th August"
+            r'(\w+\s+\d+(?:st|nd|rd|th)?)',       # "August 15th"
+        ]
+        
+        date_part = None
+        for pattern in specific_date_patterns:
+            match = re.search(pattern, normalized_text)
+            if match:
+                date_part = match.group(1).strip()
+                break
+        
+        # Try parsing the extracted date part first
+        if date_part:
+            try:
+                cal = parsedatetime.Calendar()
+                time_struct, parse_status = cal.parse(date_part)
+                if parse_status >= 1:
+                    parsed_date = datetime(*time_struct[:6])
+                    # FIXED: Ensure the parsed date is reasonable (not affected by age mentions)
+                    if parsed_date.year <= today.year + 2:
+                        return parsed_date.strftime("%Y-%m-%d")
+            except Exception as e:
+                print(f"❌ Date part parsing failed for '{date_part}': {e}")
+                pass
+        
+        # Fallback to full text parsing
         try:
             cal = parsedatetime.Calendar()
             time_struct, parse_status = cal.parse(normalized_text)

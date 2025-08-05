@@ -27,7 +27,7 @@ except ImportError as e:
     GRAPHITI_AVAILABLE = False
 
 # Knowledge Graph Configuration
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyCbJ2UBDvzztgs-gor8eyi54mWtDsugeNY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 NEO4J_URI      = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
 NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "localtestkb123")
@@ -242,10 +242,9 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
                 current_context.get('departure_date')):
                 return_indicators = ['return', 'back', 'returning', 'come back']
                 if not any(indicator in user_input.lower() for indicator in return_indicators):
-                    enhanced_user_input = f"return {user_input}"
-                    print(f"Enhanced user input for return date: '{enhanced_user_input}'")
-            
+                    enhanced_user_input = f"return {user_input}"            
             contextual_query = f"{base_context}. Now {enhanced_user_input}"
+            
             print(f"🔍 Contextual query created: {contextual_query}")
             return contextual_query
         
@@ -563,9 +562,21 @@ Selected tool:"""
             
             # Include tool result context if available
             tool_context = ""
+            extracted_data_context = ""
             if tool_result:
                 if tool_result.get('status') == 'success':
                     tool_context = f"Tool executed successfully. Result available for user."
+                    
+                    # Include extracted information to prevent misinterpretation
+                    extracted_info = tool_result.get('extracted_info', {})
+                    if extracted_info:
+                        extracted_items = []
+                        for key, value in extracted_info.items():
+                            if value is not None and value != '' and value != 'null':
+                                extracted_items.append(f"{key}: {value}")
+                        
+                        if extracted_items:
+                            extracted_data_context = f"\nIMPORTANT: The extraction tool has already processed the user's input and extracted: {', '.join(extracted_items)}. Use these extracted values as the truth - do NOT reinterpret the original user input."
                 else:
                     tool_context = f"Tool execution had issues: {tool_result.get('message', 'Unknown error')}"
 
@@ -578,7 +589,7 @@ Recent conversation:
 {current_info_summary}
 
 Context: {context_info if context_info else "Continue natural conversation"}
-Tool context: {tool_context}
+Tool context: {tool_context}{extracted_data_context}
 
 User just said: "{user_input}"
 
@@ -754,6 +765,88 @@ Respond naturally:
         else:
             return "Here's what I found:"
 
+    def generate_knowledge_based_response(self, user_input, knowledge_data, data_source):
+        """Generate an intelligent response using LLM based on knowledge graph data"""
+        try:
+            # Prepare the knowledge data for the LLM
+            if data_source == 'knowledge_graph':
+                # Parse JSON data from knowledge graph
+                import json
+                try:
+                    kg_data = json.loads(knowledge_data) if isinstance(knowledge_data, str) else knowledge_data
+                    
+                    if not kg_data:
+                        return "I searched our knowledge base but couldn't find specific information about that. Is there anything else I can help you with?"
+                    
+                    # Format knowledge graph data for LLM
+                    knowledge_context = "Knowledge Graph Search Results:\n"
+                    for item in kg_data:
+                        if item.get('type') == 'node':
+                            if item.get('summary'):
+                                knowledge_context += f"- {item['summary']}\n"
+                        elif item.get('type') == 'fact':
+                            fact_text = item.get('fact', '')
+                            valid_date = item.get('valid_at', '')
+                            if fact_text:
+                                if valid_date and valid_date != 'N/A':
+                                    knowledge_context += f"- {fact_text} (Valid from: {valid_date})\n"
+                                else:
+                                    knowledge_context += f"- {fact_text}\n"
+                    
+                except (json.JSONDecodeError, TypeError):
+                    knowledge_context = f"Knowledge data: {str(knowledge_data)}"
+                    
+            else:  # fallback data
+                # Format fallback data for LLM
+                knowledge_context = "Company Information:\n"
+                if isinstance(knowledge_data, dict):
+                    for key, value in knowledge_data.items():
+                        if isinstance(value, list):
+                            knowledge_context += f"- {key.title()}: {', '.join(value)}\n"
+                        else:
+                            knowledge_context += f"- {key.title()}: {value}\n"
+                else:
+                    knowledge_context = f"Available information: {str(knowledge_data)}"
+
+            # Generate LLM response with the knowledge data
+            prompt = f"""You are a helpful travel assistant for BookMe. A user has asked a question and you have retrieved relevant information from the knowledge base.
+
+User's question: "{user_input}"
+
+Available information from knowledge base:
+{knowledge_context}
+
+Instructions:
+1. Answer the user's question directly and helpfully using the provided information
+2. Be conversational and friendly
+3. If the information directly answers their question, provide a clear response
+4. If the information is related but not exactly what they asked, acknowledge this and provide what you can
+5. If you don't have enough information to answer, be honest about it
+6. Always offer to help with anything else
+7. Keep the response focused and not too long
+
+Generate a helpful response:"""
+
+            if self.groq_client and self.model_name:
+                chat_completion = self.groq_client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=self.model_name,
+                    temperature=0.7,
+                    max_tokens=500,
+                    top_p=0.9
+                )
+                return chat_completion.choices[0].message.content.strip()
+            else:
+                # Fallback to simple formatting if LLM is not available
+                if data_source == 'knowledge_graph':
+                    return self.format_knowledge_graph_response(user_input, knowledge_data)
+                else:
+                    return self.format_fallback_info_response(user_input, knowledge_data)
+                    
+        except Exception as e:
+            print(f"Error generating knowledge-based response: {e}")
+            return "I found some information but had trouble processing it. Could you try asking in a different way?"
+
     # =============================================================================
     # MAIN CONVERSATION PROCESSING METHODS
     # =============================================================================
@@ -773,16 +866,16 @@ Respond naturally:
             if selected_tool == 'knowledge_graph_search_tool':
                 tool_result = self.available_tools[selected_tool]['function'](user_input)
                 
-                # Generate conversational response based on knowledge graph result
+                # Generate conversational response based on knowledge graph result using LLM
                 if tool_result.get('status') == 'success':
                     if tool_result.get('source') == 'knowledge_graph':
-                        # Parse the knowledge graph data and present it conversationally
+                        # Parse the knowledge graph data and let LLM generate intelligent response
                         kg_data = tool_result.get('data', '[]')
-                        response = self.format_knowledge_graph_response(user_input, kg_data)
+                        response = self.generate_knowledge_based_response(user_input, kg_data, 'knowledge_graph')
                     else:
-                        # Fallback data
+                        # Fallback data - let LLM process this too
                         fallback_info = tool_result.get('info', {})
-                        response = self.format_fallback_info_response(user_input, fallback_info)
+                        response = self.generate_knowledge_based_response(user_input, fallback_info, 'fallback')
                 else:
                     response = "I'm sorry, I couldn't retrieve that information right now. Is there anything else I can help you with?"
                 
