@@ -1,3 +1,5 @@
+knowledge_base/
+knowledge_base/
 .venv/
 __pycache__/
 *.pyc
