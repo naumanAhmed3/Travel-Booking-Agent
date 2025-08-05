@@ -1212,3 +1212,16 @@ Keep it short and conversational:
         welcome_msg = "Hello! I'm your travel assistant, and I'm excited to help you find the perfect flight! ✈️ Tell me about your travel plans - where would you like to go?"
         self.add_to_conversation(welcome_msg, "assistant")
         return welcome_msg
+
+if __name__ == "__main__":
+    agent = ConversationalTravelAgent()
+    print(agent.reset_conversation())
+    
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() in ["exit", "quit"]:
+            print("Goodbye!")
+            break
+        
+        response = agent.process_user_input_conversationally(user_input)
+        print(f"Agent: {response['response']}")
