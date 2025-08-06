@@ -133,8 +133,13 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
         )
         
         if should_search and not final_missing_info:
-            # Perform flight search
-            search_result = search_flights_with_context(user_input, updated_context)
+            # Perform flight search - avoid double extraction when triggered by search keywords
+            if any(word in user_input.lower() for word in ['search', 'find flights', 'book', 'ready']):
+                # Pass a simple generic input to avoid re-processing the modification request
+                search_result = search_flights_with_context("search for flights", updated_context)
+            else:
+                # Use original input for other cases
+                search_result = search_flights_with_context(user_input, updated_context)
             
             return {
                 "status": "success",
@@ -581,39 +586,39 @@ Selected tool:"""
                     tool_context = f"Tool execution had issues: {tool_result.get('message', 'Unknown error')}"
 
             prompt = f"""
-You are a friendly, helpful travel agent having a natural conversation with a traveler. Be conversational, warm, and efficient.
+                You are a friendly, helpful travel agent having a natural conversation with a traveler. Be conversational, warm, and efficient.
 
-CURRENT TRAVEL INFORMATION (This is the AUTHORITATIVE source - use EXACTLY this information):
-{current_info_summary}
+                CURRENT TRAVEL INFORMATION (This is the AUTHORITATIVE source - use EXACTLY this information):
+                {current_info_summary}
 
-Recent conversation:
-{recent_conversation}
+                Recent conversation:
+                {recent_conversation}
 
-Context: {context_info if context_info else "Continue natural conversation"}
-Tool context: {tool_context}{extracted_data_context}
+                Context: {context_info if context_info else "Continue natural conversation"}
+                Tool context: {tool_context}{extracted_data_context}
 
-User just said: "{user_input}"
+                User just said: "{user_input}"
 
-CRITICAL INSTRUCTIONS:
-1. The CURRENT TRAVEL INFORMATION above shows the EXACT travel details after processing the user's request
-2. If it says "From: KHI, To: LHE" that means traveling FROM Karachi TO Lahore - use this EXACTLY
-3. If it says "From: LHE, To: KHI" that means traveling FROM Lahore TO Karachi - use this EXACTLY  
-4. DO NOT reinterpret the user's words like "vice versa" - the CURRENT TRAVEL INFORMATION already reflects any changes
-5. Always reference the cities using the information in CURRENT TRAVEL INFORMATION
-6. Be natural and conversational - like talking to a friend
-7. Don't repeat information unnecessarily 
-8. If you have most details, smoothly ask for what's still needed
-9. If confirming details, be concise and clear
-10. Show enthusiasm but don't overdo it
-11. Avoid repetitive questions about same information
-12. If user changes something, acknowledge the change naturally using the CURRENT TRAVEL INFORMATION
-13. Keep responses focused and helpful
-14. NEVER mention booking confirmation, payment, or ticket issuance - you are only SEARCHING for flights
-15. Use terms like "search for flights", "find options", "look for flights" - NOT "book", "confirm booking", or "process payment"
+                CRITICAL INSTRUCTIONS:
+                1. The CURRENT TRAVEL INFORMATION above shows the EXACT travel details after processing the user's request
+                2. If it says "From: KHI, To: LHE" that means traveling FROM Karachi TO Lahore - use this EXACTLY
+                3. If it says "From: LHE, To: KHI" that means traveling FROM Lahore TO Karachi - use this EXACTLY  
+                4. DO NOT reinterpret the user's words like "vice versa" - the CURRENT TRAVEL INFORMATION already reflects any changes
+                5. Always reference the cities using the information in CURRENT TRAVEL INFORMATION
+                6. Be natural and conversational - like talking to a friend
+                7. Don't repeat information unnecessarily 
+                8. If you have most details, smoothly ask for what's still needed
+                9. If confirming details, be concise and clear
+                10. Show enthusiasm but don't overdo it
+                11. Avoid repetitive questions about same information
+                12. If user changes something, acknowledge the change naturally using the CURRENT TRAVEL INFORMATION
+                13. Keep responses focused and helpful
+                14. NEVER mention booking confirmation, payment, or ticket issuance - you are only SEARCHING for flights
+                15. Use terms like "search for flights", "find options", "look for flights" - NOT "book", "confirm booking", or "process payment"
 
-Generate a response using the EXACT travel details from CURRENT TRAVEL INFORMATION:
-"""
-            
+                Generate a response using the EXACT travel details from CURRENT TRAVEL INFORMATION:
+                """
+           
             if self.groq_client and self.model_name:
                 chat_completion = self.groq_client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
@@ -1212,16 +1217,3 @@ Keep it short and conversational:
         welcome_msg = "Hello! I'm your travel assistant, and I'm excited to help you find the perfect flight! ✈️ Tell me about your travel plans - where would you like to go?"
         self.add_to_conversation(welcome_msg, "assistant")
         return welcome_msg
-
-if __name__ == "__main__":
-    agent = ConversationalTravelAgent()
-    print(agent.reset_conversation())
-    
-    while True:
-        user_input = input("You: ")
-        if user_input.lower() in ["exit", "quit"]:
-            print("Goodbye!")
-            break
-        
-        response = agent.process_user_input_conversationally(user_input)
-        print(f"Agent: {response['response']}")
