@@ -727,71 +727,8 @@ def search_flights_with_context(user_input: str, current_booking_info: dict) -> 
             - missing_info (list): List of missing required information
     """
     try:
-        # Create contextual query from current booking info
-        if current_booking_info:
-            natural_parts = []
-            
-            # Base travel information
-            if current_booking_info.get('source') and current_booking_info.get('destination'):
-                natural_parts.append(f"travel from {current_booking_info['source']} to {current_booking_info['destination']}")
-            elif current_booking_info.get('source'):
-                natural_parts.append(f"travel from {current_booking_info['source']}")
-            elif current_booking_info.get('destination'):
-                natural_parts.append(f"go to {current_booking_info['destination']}")
-            
-            # Passengers information
-            passengers = current_booking_info.get('passengers', {'adults': 1, 'children': 0, 'infants': 0})
-            passenger_parts = []
-            if passengers['adults'] > 0:
-                if passengers['adults'] == 1:
-                    passenger_parts.append("1 adult")
-                else:
-                    passenger_parts.append(f"{passengers['adults']} adults")
-            if passengers['children'] > 0:
-                if passengers['children'] == 1:
-                    passenger_parts.append("1 child")
-                else:
-                    passenger_parts.append(f"{passengers['children']} children")
-            if passengers['infants'] > 0:
-                if passengers['infants'] == 1:
-                    passenger_parts.append("1 infant")
-                else:
-                    passenger_parts.append(f"{passengers['infants']} infants")
-            
-            if passenger_parts:
-                natural_parts.append(f"with {' and '.join(passenger_parts)}")
-            
-            # Date information
-            if current_booking_info.get('departure_date'):
-                natural_parts.append(f"departing on {current_booking_info['departure_date']}")
-            
-            if current_booking_info.get('return_date'):
-                natural_parts.append(f"returning on {current_booking_info['return_date']}")
-            
-            # Travel class
-            if current_booking_info.get('flight_class'):
-                class_name = current_booking_info['flight_class'].replace('_', ' ')
-                natural_parts.append(f"in {class_name} class")
-            
-            # Flight type
-            if current_booking_info.get('flight_type') == 'return':
-                natural_parts.append("round trip")
-            elif current_booking_info.get('flight_type') == 'one_way':
-                natural_parts.append("one way")
-            
-            # Airline preference
-            if current_booking_info.get('content_provider'):
-                airline_name = current_booking_info['content_provider'].replace('_', ' ').title()
-                natural_parts.append(f"with {airline_name}")
-            
-            # Create contextual query
-            if natural_parts:
-                base_context = " ".join(natural_parts)
-                contextual_query = f"{base_context}. Now {user_input}"
-            else:
-                contextual_query = user_input
-        else:
-            contextual_query = user_input
+        # Create contextual query using the dedicated function
+        contextual_query = create_contextual_query(user_input, current_booking_info)
         
         # Extract travel information from contextual query
         extracted_info = extract_travel_info(contextual_query)
@@ -937,7 +874,19 @@ def create_contextual_query(user_input: str, current_context: dict = None) -> st
     """
     if not current_context:
         return user_input
-    
+
+    # Handle specific phrases for swapping source and destination
+    if user_input.lower() in ["search other way", "search other way around"]:
+        source = current_context.get('destination')
+        destination = current_context.get('source')
+        if source and destination:
+            # The user wants to swap. We'll modify the context for the query.
+            current_context = current_context.copy()
+            current_context['source'] = source
+            current_context['destination'] = destination
+            # And we'll use a neutral user input to avoid a re-swap.
+            user_input = "search for flights"
+
     try:
         # Build natural language context from current booking info
         natural_parts = []
