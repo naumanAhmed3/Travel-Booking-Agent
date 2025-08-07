@@ -789,11 +789,32 @@ def extract_flight_type(query):
         
         # Check for explicit flight type changes in the modification
         one_way_change_patterns = [
-            r'(?:no,?\s+)?(?:i\s+)?want\s+one\s+way(?:\s+flight)?',
-            r'(?:no,?\s+)?(?:i\s+)?(?:want\s+)?one\s+way(?:\s+flight)?',
-            r'(?:change\s+to\s+)?one\s+way',
+            # Explicit one-way requests with all variations
+            r'(?:no,?\s+)?(?:i\s+)?want\s+one[\s\-_]way(?:\s+flight)?',
+            r'(?:no,?\s+)?(?:i\s+)?(?:want\s+)?one[\s\-_]way(?:\s+flight)?',
+            r'(?:change\s+to\s+)?one[\s\-_]way',
+            r'(?:make\s+it\s+)?one[\s\-_]way',
+            
+            # Negation patterns - explicit rejection of return trips (improved patterns)
+            r'(?:i\s+)?(?:will\s+)?not\s+(?:come\s*)?back',  # "will not comeback", "not comeback"
+            r'(?:i\s+)?(?:will\s+)?not\s+comeback',  # "will not comeback" as one word
+            r'(?:i\s+)?(?:do\s*n\'?t|don\'?t)\s+want\s+to\s+go\s+back',  # "don't want to go back"
+            r'(?:i\s+)?(?:do\s*n\'?t|don\'?t)\s+want\s+(?:to\s+)?(?:come\s*)?back',  # "don't want comeback"
+            r'(?:i\s+)?(?:do\s*n\'?t|don\'?t|will\s+not|not)\s+want\s+(?:a\s+)?return',
+            r'(?:i\s+)?(?:do\s*n\'?t|don\'?t|will\s+not|not)\s+want\s+(?:to\s+)?return',
+            r'(?:i\s+)?(?:will\s+)?not\s+return',
+            r'(?:i\s+)?(?:am\s+)?not\s+(?:coming|going)\s+back',  # "not coming back", "not going back"
+            r'no\s+return',
             r'not\s+return',
-            r'not\s+round\s+trip'
+            r'not\s+round\s+trip',
+            r'no\s+round\s+trip',
+            
+            # Explicit one-way statements
+            r'(?:just\s+)?one[\s\-_]way\s+(?:only|ticket|flight)',
+            r'only\s+one[\s\-_]way',
+            r'single\s+(?:trip|journey|flight)',
+            r'just\s+(?:going|traveling)',
+            r'(?:i\s+)?(?:am\s+)?not\s+coming\s+back'
         ]
         
         return_change_patterns = [
