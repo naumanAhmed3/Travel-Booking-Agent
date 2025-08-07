@@ -91,19 +91,22 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
         if extraction_result.get('status') == 'success':
             extracted_info = extraction_result.get('extracted_info', {})
             
-            # Update context with newly extracted information - EXACTLY like old agent
-            for key, value in extracted_info.items():
-                if value is not None and value != '' and value != 'null':
-                    # Special handling for passengers to avoid resetting
-                    if key == 'passengers':
-                        updated_context['passengers'] = value
-                    elif key not in ['departure_date', 'return_date'] or value:
-                        # Special handling for location codes
-                        if key in ['source', 'destination'] and (not value or len(str(value)) < 2):
-                            continue
-                        updated_context[key] = value
+        # Update context with newly extracted information - EXACTLY like old agent
+        for key, value in extracted_info.items():
+            if value is not None and value != '' and value != 'null':
+                # Special handling for passengers to avoid resetting
+                if key == 'passengers':
+                    updated_context['passengers'] = value
+                elif key not in ['departure_date', 'return_date'] or value:
+                    # Special handling for location codes
+                    if key in ['source', 'destination'] and (not value or len(str(value)) < 2):
+                        continue
+                    updated_context[key] = value
         
-        # Set defaults exactly like old agent - ONLY if not already set
+        # IMPORTANT FIX: If flight_type changed to one_way, clear return_date
+        if extracted_info.get('flight_type') == 'one_way' and updated_context.get('return_date'):
+            updated_context['return_date'] = None
+            print("🔧 Cleared return_date because flight_type changed to one_way")        # Set defaults exactly like old agent - ONLY if not already set
         if not updated_context.get('passengers'):
             updated_context['passengers'] = {"adults": 1, "children": 0, "infants": 0}
         if not updated_context.get('flight_class'):
@@ -216,7 +219,9 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
         if current_context.get('departure_date'):
             natural_parts.append(f"departing on {current_context['departure_date']}")
         
-        if current_context.get('return_date'):
+        # Only include return date if flight_type is return (or not set, since default would be return in old behavior)
+        if (current_context.get('return_date') and 
+            current_context.get('flight_type') == 'return'):
             natural_parts.append(f"returning on {current_context['return_date']}")
         
         # Travel class
@@ -684,6 +689,11 @@ Selected tool:"""
                 if key in ['source', 'destination'] and (not value or len(str(value)) < 2):
                     continue
                 self.current_booking_info[key] = value
+        
+        # IMPORTANT FIX: If flight_type changed to one_way, clear return_date
+        if extracted_info.get('flight_type') == 'one_way' and self.current_booking_info.get('return_date'):
+            self.current_booking_info['return_date'] = None
+            print("🔧 Cleared return_date because flight_type changed to one_way")
 
     def identify_missing_information(self):
         """Identify what information is still needed"""
