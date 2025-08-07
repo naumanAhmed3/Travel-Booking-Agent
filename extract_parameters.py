@@ -1676,6 +1676,100 @@ def extract_dates(text, flight_type=None):
     if flight_type == "return":
         # SPECIAL HANDLING: For "Now" modification queries, check if it's specifically for return date
         if is_modification_query and has_date_info:
+            # Check if the modification contains both departure and return information
+            # Look for patterns like "travel from X to Y on [date] and return on [date]"
+            combined_travel_pattern = r'travel\s+from\s+\w+\s+to\s+\w+\s+on\s+([^,\s]+(?:\s+[^,\s]+)*?)\s+and\s+return\s+on\s+([^,\s]+(?:\s+[^,\s]+)*?)(?:\s*,|\s*\.|\s*$)'
+            combined_match = re.search(combined_travel_pattern, now_part)
+            
+            if combined_match:
+                departure_date_str = combined_match.group(1).strip().lower()
+                return_date_str = combined_match.group(2).strip().lower()
+                
+                # Parse departure date
+                departure_result = None
+                if departure_date_str in special_date_map:
+                    departure_result = special_date_map[departure_date_str]
+                else:
+                    try:
+                        cal = parsedatetime.Calendar()
+                        time_struct, parse_status = cal.parse(departure_date_str)
+                        if parse_status >= 1:
+                            parsed_date = datetime(*time_struct[:6])
+                            if parsed_date.year <= today.year + 2:
+                                departure_result = parsed_date.strftime("%Y-%m-%d")
+                    except Exception as e:
+                        print(f"❌ Error parsing departure date '{departure_date_str}': {e}")
+                
+                # Parse return date
+                return_result = None
+                if return_date_str in special_date_map:
+                    return_result = special_date_map[return_date_str]
+                else:
+                    # Try relative date parsing with departure date reference first
+                    relative_result = parse_relative_date_with_reference(return_date_str, departure_result)
+                    if relative_result:
+                        return_result = relative_result
+                    else:
+                        # Fallback to normal parsedatetime parsing
+                        try:
+                            cal = parsedatetime.Calendar()
+                            time_struct, parse_status = cal.parse(return_date_str)
+                            if parse_status >= 1:
+                                parsed_date = datetime(*time_struct[:6])
+                                if parsed_date.year <= today.year + 2:
+                                    return_result = parsed_date.strftime("%Y-%m-%d")
+                        except Exception as e:
+                            print(f"❌ Error parsing return date '{return_date_str}': {e}")
+                
+                # Apply validation if both dates were parsed
+                if departure_result and return_result:
+                    departure_dt = datetime.strptime(departure_result, "%Y-%m-%d")
+                    return_dt = datetime.strptime(return_result, "%Y-%m-%d")
+                    
+                    if return_dt <= departure_dt:
+                        # Check for impossible cases
+                        today_date = today.strftime("%Y-%m-%d")
+                        tomorrow_date = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+                        yesterday_date = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+                        
+                        impossible_cases = [
+                            (return_result == today_date and departure_result == tomorrow_date),
+                            (return_result == yesterday_date and departure_result == today_date),
+                            (return_result == yesterday_date and departure_result == tomorrow_date),
+                        ]
+                        
+                        if any(impossible_cases):
+                            print(f"❌ Impossible: Cannot return on {return_result} if departing on {departure_result}. Setting return to None.")
+                            return_result = None
+                        elif return_dt < departure_dt:
+                            # Fix chronological order for weekdays
+                            day_names = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+                            original_return_day = None
+                            
+                            for day in day_names:
+                                if day in return_date_str:
+                                    original_return_day = day
+                                    break
+                            
+                            if original_return_day:
+                                day_mapping = {
+                                    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+                                    'friday': 4, 'saturday': 5, 'sunday': 6
+                                }
+                                
+                                target_weekday = day_mapping[original_return_day]
+                                current_weekday = departure_dt.weekday()
+                                
+                                days_ahead = target_weekday - current_weekday
+                                if days_ahead <= 0:
+                                    days_ahead += 7
+                                
+                                next_occurrence = departure_dt + timedelta(days=days_ahead)
+                                return_result = next_occurrence.strftime("%Y-%m-%d")
+                                print(f"✅ Fixed return date to next {original_return_day}: {return_result}")
+                
+                return departure_result, return_result
+            
             # Check if the modification is specifically about return date
             return_change_patterns = [
                 r'change\s+return\s+date\s+to\s+(.+)',
@@ -1694,7 +1788,9 @@ def extract_dates(text, flight_type=None):
                 r'leave\s+on\s+(.+)',
                 r'departing\s+on\s+(.+)',
                 r'go\s+on\s+(.+)',
-                r'travel\s+(.+)',  # Added: "travel 3 days later to departure date"
+                r'travel\s+from\s+\w+\s+to\s+\w+\s+on\s+([^,\s]+(?:\s+[^,\s]+)*?)(?:\s+and|\s+return|\s*,|\s*\.|\s*$)',  # "travel from X to Y on [date]"
+                r'travel\s+to\s+\w+\s+on\s+([^,\s]+(?:\s+[^,\s]+)*?)(?:\s+and|\s+return|\s*,|\s*\.|\s*$)',  # "travel to X on [date]"
+                r'travel\s+on\s+([^,\s]+(?:\s+[^,\s]+)*?)(?:\s+and|\s+return|\s*,|\s*\.|\s*$)',  # "travel on [date]"
                 r'depart\s+(.+)',  # Added: "depart 3 days later to departure date"
                 r'leave\s+(.+)'    # Added: "leave 3 days later to departure date"
             ]
