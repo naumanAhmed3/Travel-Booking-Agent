@@ -240,15 +240,15 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
             # ---- GROQ LLM SIMPLIFICATION ----
             prompt = (
                 "Simplify the following travel context into the format:\n"
-                "'I need a flight from <SOURCE> to <DESTINATION> departing <DATE> and returning after N days',\n"
-                "where dates can also be relative (e.g., 'tomorrow').\n"
+                "'I need a flight from <SOURCE> to <DESTINATION> departing <DATE> and returning after <N> days (IF RETURN IS APPLICABLE) , with <N> kids <N> adults and <N> infants (IF PASSENGER DETAILS ARE ALSO SPECIFIED EXPLICITLY)',\n"
+                "where dates can also be relative (e.g., 'tomorrow','next week','in 5 days','first monday after a departure',etc).\n"
                 f"Context: {contextual_query}"
             )
 
             response = groq_client.chat.completions.create(
                 model="llama3-70b-8192",  # adjust to your Groq model
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
+                temperature=0.4,
                 max_tokens=150
             )
 
