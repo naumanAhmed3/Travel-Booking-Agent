@@ -1594,18 +1594,14 @@ def parse_relative_date_with_reference(date_str, reference_date_str=None):
     try:
         # Check if the date string references departure date
         departure_reference_patterns = [
-            r'(.+?)\s+after\s+departure\s+date',
-            r'(.+?)\s+after\s+departure',
-            r'(.+?)\s+from\s+departure\s+date',
-            r'(.+?)\s+from\s+departure',
-            r'(.+?)\s+since\s+departure\s+date',
-            r'(.+?)\s+since\s+departure',
-            r'(.+?)\s+to\s+departure\s+date',  # Added: "3 days later to departure date"
-            r'(.+?)\s+to\s+departure',         # Added: "3 days later to departure"
-            r'(.+?)\s+later\s+to\s+departure\s+date',  # Added: "3 days later to departure date" 
-            r'(.+?)\s+later\s+to\s+departure'          # Added: "3 days later to departure"
-        ]
-        
+                r'(.+?)\s+after\s+departure\s+date',
+                r'(.+?)\s+after\s+departure',
+                r'(.+?)\s+from\s+departure\s+date',
+                r'(.+?)\s+from\s+departure',
+                # NEW: handle "after N days/weeks" and "in N days/weeks"
+                r'after\s+(\d+\s+(?:days?|weeks?|months?))',
+                r'in\s+(\d+\s+(?:days?|weeks?|months?))',
+                                    ]
         uses_departure_reference = False
         relative_part = date_str
         

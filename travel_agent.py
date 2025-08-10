@@ -175,93 +175,92 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
             "missing_info": [],
             "formatted_display": "Unable to process flight request at this time."
         }
+from groq import Groq
+
+# Make sure you set GROQ_API_KEY in your environment
+groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 def create_contextual_query(user_input: str, current_context: dict = None, missing_info: list = None) -> str:
-    """Create a natural language contextual query exactly like the old agent did"""
+    """Create a contextual query, then simplify it via Groq LLM into the target format."""
     if not current_context:
         return user_input
-    
+
     try:
-        # Build natural language context from current booking info - EXACTLY like old agent
+        # ---- OLD AGENT STYLE STRING BUILD ----
         natural_parts = []
-        
-        # Base travel information
         if current_context.get('source') and current_context.get('destination'):
             natural_parts.append(f"travel from {current_context['source']} to {current_context['destination']}")
         elif current_context.get('source'):
             natural_parts.append(f"travel from {current_context['source']}")
         elif current_context.get('destination'):
             natural_parts.append(f"go to {current_context['destination']}")
-        
-        # Passengers information - be specific about types EXACTLY like old agent
+
         passengers = current_context.get('passengers', {'adults': 1, 'children': 0, 'infants': 0})
         passenger_parts = []
         if passengers['adults'] > 0:
-            if passengers['adults'] == 1:
-                passenger_parts.append("1 adult")
-            else:
-                passenger_parts.append(f"{passengers['adults']} adults")
+            passenger_parts.append(f"{passengers['adults']} adult{'s' if passengers['adults'] > 1 else ''}")
         if passengers['children'] > 0:
-            if passengers['children'] == 1:
-                passenger_parts.append("1 child")
-            else:
-                passenger_parts.append(f"{passengers['children']} children")
+            passenger_parts.append(f"{passengers['children']} child{'ren' if passengers['children'] > 1 else ''}")
         if passengers['infants'] > 0:
-            if passengers['infants'] == 1:
-                passenger_parts.append("1 infant")
-            else:
-                passenger_parts.append(f"{passengers['infants']} infants")
-        
+            passenger_parts.append(f"{passengers['infants']} infant{'s' if passengers['infants'] > 1 else ''}")
         if passenger_parts:
             natural_parts.append(f"with {' and '.join(passenger_parts)}")
-        
-        # Date information
+
         if current_context.get('departure_date'):
             natural_parts.append(f"departing on {current_context['departure_date']}")
-        
-        # Only include return date if flight_type is return (or not set, since default would be return in old behavior)
+
         if (current_context.get('return_date') and 
             current_context.get('flight_type') == 'return'):
             natural_parts.append(f"returning on {current_context['return_date']}")
-        
-        # Travel class
+
         if current_context.get('flight_class'):
-            class_name = current_context['flight_class'].replace('_', ' ')
-            natural_parts.append(f"in {class_name} class")
-        
-        # Flight type
+            natural_parts.append(f"in {current_context['flight_class'].replace('_', ' ')} class")
+
         if current_context.get('flight_type') == 'return':
             natural_parts.append("round trip")
         elif current_context.get('flight_type') == 'one_way':
             natural_parts.append("one way")
-        
-        # Airline preference
+
         if current_context.get('content_provider'):
-            airline_name = current_context['content_provider'].replace('_', ' ').title()
-            natural_parts.append(f"with {airline_name}")
-        
-        # Create natural language contextual query EXACTLY like old agent
+            natural_parts.append(f"with {current_context['content_provider'].replace('_', ' ').title()}")
+
         if natural_parts:
             base_context = " ".join(natural_parts)
-            
-            # SMART CONTEXT ENHANCEMENT: Add "return" prefix when collecting missing return date
             enhanced_user_input = user_input
             if (missing_info and 'return_date' in missing_info and 
                 current_context.get('flight_type') == 'return' and 
                 not current_context.get('return_date') and 
                 current_context.get('departure_date')):
-                return_indicators = ['return', 'back', 'returning', 'come back']
-                if not any(indicator in user_input.lower() for indicator in return_indicators):
-                    enhanced_user_input = f"return {user_input}"            
+                if not any(word in user_input.lower() for word in ['return', 'back', 'returning', 'come back']):
+                    enhanced_user_input = f"return {user_input}"
             contextual_query = f"{base_context}. Now {enhanced_user_input}"
-            
+
             print(f"🔍 Contextual query created: {contextual_query}")
-            return contextual_query
-        
+
+            # ---- GROQ LLM SIMPLIFICATION ----
+            prompt = (
+                "Simplify the following travel context into the format:\n"
+                "'I need a flight from <SOURCE> to <DESTINATION> departing <DATE> and returning after N days',\n"
+                "where dates can also be relative (e.g., 'tomorrow').\n"
+                f"Context: {contextual_query}"
+            )
+
+            response = groq_client.chat.completions.create(
+                model="llama3-70b-8192",  # adjust to your Groq model
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=150
+            )
+
+            simplified = response.choices[0].message.content.strip()
+            print(f"🤖 Groq LLM simplified query: {simplified}")
+            return simplified
+
     except Exception as e:
         print(f"Error creating contextual query: {e}")
-    
+
     return user_input
+
 
 @tool
 def knowledge_graph_search_tool(query: str) -> dict:
