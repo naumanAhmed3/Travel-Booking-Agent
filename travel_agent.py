@@ -233,14 +233,14 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
                 current_context.get('departure_date')):
                 if not any(word in user_input.lower() for word in ['return', 'back', 'returning', 'come back']):
                     enhanced_user_input = f"return {user_input}"
-            contextual_query = f"{base_context}. Now {enhanced_user_input}"
+            contextual_query = f"{base_context}. NOW USER SAYS :{enhanced_user_input}"
 
             print(f"🔍 Contextual query created: {contextual_query}")
 
             # ---- GROQ LLM SIMPLIFICATION ----
             prompt = (
-                "Simplify the following travel context into the format:\n"
-                "'I need a flight from <SOURCE> to <DESTINATION> departing <DATE> and returning after <N> days (IF RETURN IS APPLICABLE) , with <N> kids <N> adults and <N> infants (IF PASSENGER DETAILS ARE ALSO SPECIFIED EXPLICITLY)',\n"
+                "Simplify the following ambiguos travel query into the format:\n"
+                "'I need a flight from <SOURCE> to <DESTINATION> departing <DATE> and returning after <N> days (IF RETURN FLIGHT IS NEEDED ONLY OTHERWISE MENTION ONE WAY , CONSIDER ONLY RETURN DATE MENTIONED AT THE END OF SENTENCE) , with <N> children <N> adults and <N> infants (IF PASSENGER DETAILS ARE ALSO SPECIFIED EXPLICITLY)',\n"
                 "where dates can also be relative (e.g., 'tomorrow','next week','in 5 days','first monday after a departure',etc).\n"
                 f"Context: {contextual_query}"
             )
@@ -248,7 +248,7 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
             response = groq_client.chat.completions.create(
                 model="llama3-70b-8192",  # adjust to your Groq model
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.4,
+                temperature=0.5,
                 max_tokens=150
             )
 
