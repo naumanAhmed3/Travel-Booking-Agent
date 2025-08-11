@@ -198,8 +198,7 @@ groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
 def create_contextual_query(user_input: str, current_context: dict = None, missing_info: list = None) -> str:
     """Create a contextual query, then simplify it via Groq LLM into the target format."""
     if not current_context:
-        return user_input
-
+        current_context = {}
     try:
         # ---- OLD AGENT STYLE STRING BUILD ----
         natural_parts = []
@@ -866,21 +865,21 @@ class ConversationalTravelAgent:
             # Generate LLM response with the knowledge data
             prompt = f"""You are a helpful travel assistant for BookMe. A user has asked a question and you have retrieved relevant information from the knowledge base.
 
-User's question: "{user_input}"
+                User's question: "{user_input}"
 
-Available information from knowledge base:
-{knowledge_context}
+                Available information from knowledge base:
+                {knowledge_context}
 
-Instructions:
-1. Answer the user's question directly and helpfully using the provided information
-2. Be conversational and friendly
-3. If the information directly answers their question, provide a clear response
-4. If the information is related but not exactly what they asked, acknowledge this and provide what you can
-5. If you don't have enough information to answer, be honest about it
-6. Always offer to help with anything else
-7. Keep the response focused and not too long
+                Instructions:
+                1. Answer the user's question directly and helpfully using the provided information
+                2. Be conversational and friendly
+                3. If the information directly answers their question, provide a clear response
+                4. If the information is related but not exactly what they asked, acknowledge this and provide what you can
+                5. If you don't have enough information to answer, be honest about it
+                6. Always offer to help with anything else
+                7. Keep the response focused and not too long
 
-Generate a helpful response:"""
+                Generate a helpful response:"""
 
             if self.groq_client and self.model_name:
                 chat_completion = self.groq_client.chat.completions.create(
@@ -1125,18 +1124,18 @@ Generate a helpful response:"""
             route = f"{info.get('source')} to {info.get('destination')}"
             
             prompt = f"""
-Generate a brief, enthusiastic message that you're about to start searching for flights from {route}.
+                Generate a brief, enthusiastic message that you're about to start searching for flights from {route}.
 
-The message should:
-1. Be excited and positive
-2. Indicate you're starting the search process
-3. Be very brief (1-2 sentences max)
-4. Use terms like "searching", "looking", "finding" - NOT "booking" or "processing"
+                The message should:
+                1. Be excited and positive
+                2. Indicate you're starting the search process
+                3. Be very brief (1-2 sentences max)
+                4. Use terms like "searching", "looking", "finding" - NOT "booking" or "processing"
 
-Examples: "Excellent! Let me search for the best flights for you now!" or "Perfect! Searching for your flights right away!"
+                Examples: "Excellent! Let me search for the best flights for you now!" or "Perfect! Searching for your flights right away!"
 
-Generate message:
-"""
+                Generate message:
+                """
             
             if self.groq_client and self.model_name:
                 chat_completion = self.groq_client.chat.completions.create(
@@ -1219,19 +1218,19 @@ Generate message:
             summary = "Perfect! I have " + ", ".join(summary_parts) + airline_text + "."
             
             prompt = f"""
-Create a brief, friendly confirmation message for this flight search:
+                Create a brief, friendly confirmation message for this flight search:
 
-{summary}
+                {summary}
 
-The message should:
-1. Confirm the details naturally
-2. Ask if they're ready to SEARCH for flights (not book - just search!)
-3. Be warm but concise
-4. Not repeat all the details again
-5. Use words like "search", "find flights", "look for options" - NOT "book", "confirm booking", or "process payment"
+                The message should:
+                1. Confirm the details naturally
+                2. Ask if they're ready to SEARCH for flights (not book - just search!)
+                3. Be warm but concise
+                4. Not repeat all the details again
+                5. Use words like "search", "find flights", "look for options" - NOT "book", "confirm booking", or "process payment"
 
-Keep it short and conversational:
-"""
+                Keep it short and conversational:
+                """
             
             if self.groq_client and self.model_name:
                 chat_completion = self.groq_client.chat.completions.create(
