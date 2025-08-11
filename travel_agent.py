@@ -44,24 +44,39 @@ def tool(func):
 @tool
 def flight_search_and_extraction_tool(user_input: str, current_context: dict = None, search_mode: bool = False) -> dict:
     """
-    Handle all flight-related functionality including travel information extraction and flight search.
-    
+    Flight Search and Travel Information Extraction Tool
+
+    Purpose:
+        Handles all user requests related to air travel — including extracting trip details from 
+        natural language and performing live flight searches.
+
     Use this tool for:
-    - Extracting travel information from user's natural language input
-    - Searching for flights when user wants to find flights or has confirmed travel details
-    - Processing travel data like cities, dates, passenger counts, flight class, and preferences
-    
-    This tool automatically determines whether to extract information or search for flights
-    based on the completeness of the travel information provided.
-    
+        - Finding flights based on origin, destination, travel dates, and passenger details
+        - Extracting structured travel details (cities, airports, dates, passenger counts, flight class) 
+        from free-form user messages
+        - Processing partial travel requests to fill in missing details before searching
+        - Handling specific flight preferences (airlines, times, budget, class)
+        - Updating or confirming existing flight booking details in context
+
+    Behavior:
+        - If the user provides complete trip information → search flights immediately
+        - If information is incomplete → extract details and update the booking context
+        - Automatically switches between "extraction mode" and "search mode" depending on input completeness
+
+    Example triggers:
+        "Find flights from Lahore to Dubai next Monday"
+        "Book a return ticket from Islamabad to Karachi for two passengers"
+        "I need a flight to London on the 15th, business class"
+
     Args:
-        user_input (str): User's message containing travel information or search request
-        current_context (dict): Existing booking context for better extraction/search
-        search_mode (bool): If True, force flight search mode; if False, auto-determine
-        
+        user_input (str): The user's message containing travel details or a flight search request
+        current_context (dict): Existing booking context to help extract or refine details
+        search_mode (bool): If True, forces flight search; if False, auto-detect mode
+
     Returns:
-        dict: Extracted travel parameters, flight search results, or both with status
+        dict: Extracted travel details, flight search results, or both (with operation status)
     """
+
     try:
         # Always extract travel information using contextual awareness - USE THE SAME LOGIC AS OLD AGENT
         from flight_tool import extract_travel_parameters
@@ -265,16 +280,35 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
 @tool
 def knowledge_graph_search_tool(query: str) -> dict:
     """
-    Searches the company's internal knowledge base for established policies, offers, and general information.
-    Use this tool to answer questions about non-dynamic company data. This includes return policies, shipping rules,
-    current promotions, special offers, product features, business hours and event updates. Do NOT use this for real-time
-    data like flight searches or live inventory checks.
+    Knowledge Graph Search Tool — Company Information, Policies, and Offers
+
+    Purpose:
+        Retrieves answers from the company's internal knowledge base about fixed, non-real-time information.
+
+    Use this tool for:
+        - Company policies (refunds, cancellations, changes, baggage rules)
+        - Current promotions, discounts, and special offers
+        - Business hours, contact information, and location details
+        - Product or service descriptions (e.g., bus routes, seat types, amenities)
+        - Payment methods, fees, and procedural guides
+        - Event schedules or announcements that are not live data
+
+    Do NOT use this tool for:
+        - Real-time flight, bus, or ticket searches
+        - Live availability, pricing, or inventory checks
+
+    Example triggers:
+        "What is your refund policy for cancelled trips?"
+        "Are there any discounts available for students?"
+        "What payment methods do you accept?"
+        "Tell me about your business class bus service."
+        "When is your office open?"
 
     Args:
-        query (str): The user's question about company policies, promotions, or general info.
-        
+        query (str): The user's question about company policies, services, promotions, or general info.
+
     Returns:
-        dict: Knowledge graph search results or fallback information
+        dict: Knowledge graph search results containing relevant company information
     """
     try:
         # Check if graphiti_core is available and all required environment variables are set
@@ -460,28 +494,50 @@ class ConversationalTravelAgent:
                 else:
                     tool_descriptions += f"\n{tool_name}: No description available\n"
 
-            prompt = f"""You are an intelligent tool selector for a travel assistant. Analyze the user's request and select the most appropriate tool based on the detailed descriptions below.
+            prompt = f"""
+                You are a travel assistant's intelligent tool selector.
 
-Available Tools:
-{tool_descriptions}
+                Your ONLY job: Choose exactly ONE tool name from this list:
+                {', '.join(self.available_tools.keys())}
 
-Current conversation context: {conversation_context}
-User's request: "{user_input}"
+                ### Available Tools
+                {tool_descriptions}
 
-Analysis Guidelines:
-1. If the user is asking about flights, travel plans, destinations, dates, passengers, or wants to search/book flights → use 'flight_search_and_extraction_tool'
-2. If the user is asking about company information, policies, services, offers, promotions, support, or general BookMe information → use 'knowledge_graph_search_tool'
-3. Consider the context of the conversation
-4. If uncertain, prioritize based on the primary intent of the request
+                ---
 
-Think step by step:
-1. What is the user primarily asking about?
-2. Which tool's description and use cases best match this request?
-3. What would be most helpful to the user?
+                ### Decision Rules:
+                1. If the request is about flights, flight booking, searching flights, destinations, itineraries, dates, airports, tickets, or passengers → choose: flight_search_and_extraction_tool
+                2. If the request is about the company, policies, offers, promotions, deals, services, buses, payments, cancellations, refunds, or general BookMe information → choose: knowledge_graph_search_tool
+                3. Use the **conversation context** to disambiguate vague queries.
+                4. Respond ONLY with the exact tool name from the list — no extra text, punctuation, or formatting.
 
-Respond with ONLY the tool name, nothing else.
+                ---
 
-Selected tool:"""
+                ### Examples:
+                User: "Find flights from Lahore to Dubai for next Monday"
+                → flight_search_and_extraction_tool
+
+                User: "What's your refund policy for cancelled trips?"
+                → knowledge_graph_search_tool
+
+                User: "Book a return ticket from Islamabad to Karachi"
+                → flight_search_and_extraction_tool
+
+                User: "Do you have any promotions this week?"
+                → knowledge_graph_search_tool
+
+                ---
+
+                ### Current Conversation Context:
+                {conversation_context}
+
+                ### User's Request:
+                "{user_input}"
+
+                ---
+
+                Tool name:"""
+
 
             if self.groq_client and self.model_name:
                 chat_completion = self.groq_client.chat.completions.create(
