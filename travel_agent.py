@@ -98,7 +98,7 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
         # Create contextual query with smart return date enhancement
         contextual_query = create_contextual_query(user_input, current_context, missing_info)
         # Pass None as current_context to prevent double contextualization in extract_travel_parameters
-        extraction_result = extract_travel_parameters(contextual_query, None)
+        extraction_result = extract_travel_parameters(contextual_query)
         
         # Start with current context
         updated_context = current_context.copy() if current_context else {}
@@ -157,7 +157,7 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
                 search_result = search_flights_with_context("search for flights", updated_context)
             else:
                 # Use original input for other cases
-                search_result = search_flights_with_context(user_input, updated_context)
+                search_result = search_flights_with_context(contextual_query, updated_context)
             
             return {
                 "status": "success",
@@ -330,26 +330,6 @@ def knowledge_graph_search_tool(query: str) -> dict:
         
     except Exception as e:
         logger.warning(f"Knowledge graph search failed: {e}. Using fallback information.")
-        
-        # Fallback to static BookMe information
-        bookme_info = {
-            "company": "BookMe is Pakistan's leading travel and entertainment platform",
-            "services": ["Flight booking", "Hotel reservations", "Event tickets", "Bus tickets"],
-            "payment_methods": ["Credit/Debit cards", "Bank transfer", "Mobile wallets"],
-            "support": "24/7 customer support available",
-            "cancellation": "Cancellation policies vary by airline and fare type",
-            "contact": "Visit our website or contact customer support for specific queries",
-            "booking_process": "Search, select, and book flights easily through our platform",
-            "refund_policy": "Refund eligibility depends on airline policies and fare conditions",
-            "customer_service": "Available through multiple channels including phone, email, and chat"
-        }
-        
-        return {
-            "status": "success",
-            "source": "fallback",
-            "info": bookme_info,
-            "message": "BookMe information retrieved successfully (using fallback data)"
-        }
 
 async def _async_knowledge_graph_search(query: str) -> str:
     """

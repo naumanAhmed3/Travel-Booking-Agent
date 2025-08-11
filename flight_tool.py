@@ -352,37 +352,6 @@ class FlightSearchEngine:
                         lowest_fare = min(flight['fare_options'], key=lambda x: x.get('total_fare', 999999))
                         flight["sortable_price"] = lowest_fare.get('total_fare', 999999)
                     all_flights.append(flight)
-                continue
-            else:
-                # API call was successful but no flights found
-                print(f"📭 {airline}: API call successful but no flights found")
-                continue
-            
-            # Fallback to old method if extraction fails (should rarely happen now)
-            flights = None
-            if "data" in result and result["data"]:
-                flights = result["data"]
-            elif "flights" in result and result["flights"]:
-                flights = result["flights"]
-            elif "results" in result and result["results"]:
-                flights = result["results"]
-            elif "itineraries" in result and result["itineraries"]:
-                flights = result["itineraries"]
-            else:
-                if isinstance(result, dict) and any(key in result for key in ["price", "cost", "totalPrice", "fare"]):
-                    flights = [result]
-            
-            if flights:
-                successful_with_flights.append(result)
-                if isinstance(flights, list):
-                    for flight in flights:
-                        if isinstance(flight, dict):
-                            flight["source_airline"] = airline
-                            all_flights.append(flight)
-                elif isinstance(flights, dict):
-                    flights["source_airline"] = airline
-                    all_flights.append(flights)
-        
         try:
             def get_price(flight):
                 # First try the sortable_price field from extracted flights
@@ -699,7 +668,7 @@ class FlightSearchEngine:
 flight_search_engine = FlightSearchEngine()
 
 @tool
-def search_flights_with_context(user_input: str, current_booking_info: dict) -> dict:
+def search_flights_with_context(contextual_query: str, current_booking_info: dict) -> dict:
     """
     Search for flights using the provided booking information and user input.
     
@@ -727,8 +696,6 @@ def search_flights_with_context(user_input: str, current_booking_info: dict) -> 
             - missing_info (list): List of missing required information
     """
     try:
-        # Create contextual query using the dedicated function
-        contextual_query = create_contextual_query(user_input, current_booking_info)
         
         # Extract travel information from contextual query
         extracted_info = extract_travel_info(contextual_query)
@@ -825,7 +792,7 @@ def search_flights_with_context(user_input: str, current_booking_info: dict) -> 
 
 
 @tool
-def extract_travel_parameters(user_input: str, current_context: dict = None) -> dict:
+def extract_travel_parameters(contextual_query: str) -> dict:
     """
     Extract structured travel information from natural language user input.
     
@@ -849,7 +816,6 @@ def extract_travel_parameters(user_input: str, current_context: dict = None) -> 
     """
     try:
         # Create contextual query if context is provided - this preserves existing booking information
-        contextual_query = create_contextual_query(user_input, current_context)
         
         # Extract travel information
         extracted_info = extract_travel_info(contextual_query)
@@ -866,92 +832,3 @@ def extract_travel_parameters(user_input: str, current_context: dict = None) -> 
             "message": f"Failed to extract travel parameters: {str(e)}",
             "extracted_info": {}
         }
-
-def create_contextual_query(user_input: str, current_context: dict = None) -> str:
-    """
-    Create a natural language contextual query that includes current booking information.
-    This is crucial for preserving context when users provide incremental information.
-    """
-    if not current_context:
-        return user_input
-
-    # Handle specific phrases for swapping source and destination
-    if user_input.lower() in ["search other way", "search other way around"]:
-        source = current_context.get('destination')
-        destination = current_context.get('source')
-        if source and destination:
-            # The user wants to swap. We'll modify the context for the query.
-            current_context = current_context.copy()
-            current_context['source'] = source
-            current_context['destination'] = destination
-            # And we'll use a neutral user input to avoid a re-swap.
-            user_input = "search for flights"
-
-    try:
-        # Build natural language context from current booking info
-        natural_parts = []
-        
-        # Base travel information
-        if current_context.get('source') and current_context.get('destination'):
-            natural_parts.append(f"travel from {current_context['source']} to {current_context['destination']}")
-        elif current_context.get('source'):
-            natural_parts.append(f"travel from {current_context['source']}")
-        elif current_context.get('destination'):
-            natural_parts.append(f"go to {current_context['destination']}")
-        
-        # Passengers information - be specific about types
-        passengers = current_context.get('passengers', {'adults': 1, 'children': 0, 'infants': 0})
-        passenger_parts = []
-        if passengers['adults'] > 0:
-            if passengers['adults'] == 1:
-                passenger_parts.append("1 adult")
-            else:
-                passenger_parts.append(f"{passengers['adults']} adults")
-        if passengers['children'] > 0:
-            if passengers['children'] == 1:
-                passenger_parts.append("1 child")
-            else:
-                passenger_parts.append(f"{passengers['children']} children")
-        if passengers['infants'] > 0:
-            if passengers['infants'] == 1:
-                passenger_parts.append("1 infant")
-            else:
-                passenger_parts.append(f"{passengers['infants']} infants")
-        
-        if passenger_parts:
-            natural_parts.append(f"with {' and '.join(passenger_parts)}")
-        
-        # Date information
-        if current_context.get('departure_date'):
-            natural_parts.append(f"departing on {current_context['departure_date']}")
-        
-        if current_context.get('return_date'):
-            natural_parts.append(f"returning on {current_context['return_date']}")
-        
-        # Travel class
-        if current_context.get('flight_class'):
-            class_name = current_context['flight_class'].replace('_', ' ')
-            natural_parts.append(f"in {class_name} class")
-        
-        # Flight type
-        if current_context.get('flight_type') == 'return':
-            natural_parts.append("round trip")
-        elif current_context.get('flight_type') == 'one_way':
-            natural_parts.append("one way")
-        
-        # Airline preference
-        if current_context.get('content_provider'):
-            airline_name = current_context['content_provider'].replace('_', ' ').title()
-            natural_parts.append(f"with {airline_name}")
-        
-        # Create natural language contextual query
-        if natural_parts:
-            base_context = " ".join(natural_parts)
-            contextual_query = f"{base_context}. Now {user_input}"
-            print(f"🔍 Contextual query created: {contextual_query}")
-            return contextual_query
-        
-    except Exception as e:
-        print(f"Error creating contextual query: {e}")
-    
-    return user_input
