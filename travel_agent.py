@@ -139,7 +139,7 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
             final_missing_info.append("departure_date")
         if updated_context.get("flight_type") == "return" and not updated_context.get("return_date"):
             final_missing_info.append("return_date")
-        
+
         # Determine if we should search for flights
         confirmation_words = ['yes', 'yeah', 'yep', 'correct', 'right', 'okay', 'ok', 'sure', 'confirm', 'search', 'find flights']
         is_confirmation = any(word in user_input.lower().strip() for word in confirmation_words)
@@ -254,14 +254,18 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
         # ---- GROQ LLM SIMPLIFICATION ----
         prompt = (
             "Simplify the following ambiguous travel query into the format:\n"
-            "'I need a flight from <SOURCE> to <DESTINATION> departing <DATE> and returning after <N> days "
-            "(IF RETURN FLIGHT IS NEEDED ONLY OTHERWISE MENTION ONE WAY , CONSIDER ONLY RETURN DATE MENTIONED AT THE END OF SENTENCE), "
-            "with <N> children <N> adults and <N> infants (IF PASSENGER DETAILS ARE ALSO SPECIFIED EXPLICITLY)',\n"
-            "where dates can also be relative (e.g., 'tomorrow','next week','in 5 days','first monday after a departure',etc).\n"
+            "'I need a flight from <SOURCE> to <DESTINATION> on departing <DATE> "
+            "and returning <RETURN_EXPRESSION>' "
+            "(RETURN_EXPRESSION can be: 'after <N> days', 'on <DAY_OF_WEEK>', 'on <DATE>', or any other exact relative phrase given by the user. "
+            "If no return is specified, say 'one way'). "
+            "Preserve exact return details from the latest user input — do NOT replace them with an assumed number of days."
+            "Include passenger details only if explicitly specified.\n"
+            "Dates can also be relative (e.g., 'tomorrow','next week','in 5 days','on Wednesday','first Monday after departure').\n"
             "Return ONLY in JSON format like:\n"
             "{\n    \"simplified_query\": \"...\"\n}"
             f"\nContext: {contextual_query}"
         )
+
 
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",  # adjust to your Groq model
