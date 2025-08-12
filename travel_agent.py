@@ -251,24 +251,31 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
 
             print(f"🔍 Contextual query created: {contextual_query}")
 
-            # ---- GROQ LLM SIMPLIFICATION ----
-            prompt = (
-                "Simplify the following ambiguos travel query into the format:\n"
-                "'I need a flight from <SOURCE> to <DESTINATION> departing <DATE> and returning after <N> days (IF RETURN FLIGHT IS NEEDED ONLY OTHERWISE MENTION ONE WAY , CONSIDER ONLY RETURN DATE MENTIONED AT THE END OF SENTENCE) , with <N> children <N> adults and <N> infants (IF PASSENGER DETAILS ARE ALSO SPECIFIED EXPLICITLY)',\n"
-                "where dates can also be relative (e.g., 'tomorrow','next week','in 5 days','first monday after a departure',etc).\n"
-                f"Context: {contextual_query}"
-            )
+        # ---- GROQ LLM SIMPLIFICATION ----
+        prompt = (
+            "Simplify the following ambiguous travel query into the format:\n"
+            "'I need a flight from <SOURCE> to <DESTINATION> departing <DATE> and returning after <N> days "
+            "(IF RETURN FLIGHT IS NEEDED ONLY OTHERWISE MENTION ONE WAY , CONSIDER ONLY RETURN DATE MENTIONED AT THE END OF SENTENCE), "
+            "with <N> children <N> adults and <N> infants (IF PASSENGER DETAILS ARE ALSO SPECIFIED EXPLICITLY)',\n"
+            "where dates can also be relative (e.g., 'tomorrow','next week','in 5 days','first monday after a departure',etc).\n"
+            "Return ONLY in JSON format like:\n"
+            "{\n    \"simplified_query\": \"...\"\n}"
+            f"\nContext: {contextual_query}"
+        )
 
-            response = groq_client.chat.completions.create(
-                model="llama3-70b-8192",  # adjust to your Groq model
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.5,
-                max_tokens=150
-            )
+        response = groq_client.chat.completions.create(
+            model="llama3-70b-8192",  # adjust to your Groq model
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
+            max_tokens=150,
+            response_format={"type": "json_object"}  # Enforce JSON output
+        )
 
-            simplified = response.choices[0].message.content.strip()
-            print(f"🤖 Groq LLM simplified query: {simplified}")
-            return simplified
+        # Extract JSON and return only the value
+        simplified_json = json.loads(response.choices[0].message.content)
+        simplified_query = simplified_json.get("simplified_query", "")
+        print(f"🤖 Groq LLM simplified query: {simplified_query}")
+        return simplified_query
 
     except Exception as e:
         print(f"Error creating contextual query: {e}")
