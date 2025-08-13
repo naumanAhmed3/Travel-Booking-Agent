@@ -259,6 +259,7 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
             "(RETURN_EXPRESSION can be: 'after <N> days', 'on <DAY_OF_WEEK>', 'on <DATE>', or any other exact relative phrase given by the user. "
             "If no return is specified, say 'one way'). "
             "Preserve exact return details from the latest user input — do NOT replace them with an assumed number of days."
+            "Never invent or guess a return duration or departure date"
             "Include passenger details only if explicitly specified.\n"
             "Dates can also be relative (e.g., 'tomorrow','next week','in 5 days','on Wednesday','first Monday after departure').\n"
             "Return ONLY in JSON format like:\n"

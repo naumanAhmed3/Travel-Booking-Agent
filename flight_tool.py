@@ -696,50 +696,23 @@ def search_flights_with_context(contextual_query: str, current_booking_info: dic
             - missing_info (list): List of missing required information
     """
     try:
-        
-        # Extract travel information from contextual query
-        extracted_info = extract_travel_info(contextual_query)
-        
-        # Merge extracted info with current booking info
-        merged_booking_info = current_booking_info.copy() if current_booking_info else {}
-        
-        if extracted_info:
-            # Special handling for passengers to avoid resetting
-            if extracted_info.get('passengers'):
-                merged_booking_info['passengers'] = extracted_info['passengers']
-            elif not merged_booking_info.get('passengers'):
-                merged_booking_info['passengers'] = {"adults": 1, "children": 0, "infants": 0}
-            
-            # Update other fields - ONLY if the extracted value is not None/empty/null
-            for key, value in extracted_info.items():
-                if key != 'passengers' and value is not None and value != '' and value != 'null':
-                    # Special handling for dates to avoid overwriting with None
-                    if key in ['departure_date', 'return_date'] and not value:
-                        continue
-                    
-                    # Special handling for location codes
-                    if key in ['source', 'destination'] and (not value or len(str(value)) < 2):
-                        continue
-                    
-                    merged_booking_info[key] = value
-        
         # Set defaults if not specified
-        if not merged_booking_info.get("flight_class"):
-            merged_booking_info["flight_class"] = "economy"
-        if not merged_booking_info.get("flight_type"):
-            merged_booking_info["flight_type"] = "one_way"
-        if not merged_booking_info.get('passengers'):
-            merged_booking_info['passengers'] = {"adults": 1, "children": 0, "infants": 0}
-        
+        if not current_booking_info.get("flight_class"):
+            current_booking_info["flight_class"] = "economy"
+        if not current_booking_info.get("flight_type"):
+            current_booking_info["flight_type"] = "one_way"
+        if not current_booking_info.get('passengers'):
+            current_booking_info['passengers'] = {"adults": 1, "children": 0, "infants": 0}
+
         # Check for missing required information
         missing = []
-        if not merged_booking_info.get("source"):
+        if not current_booking_info.get("source"):
             missing.append("departure_city")
-        if not merged_booking_info.get("destination"):
+        if not current_booking_info.get("destination"):
             missing.append("destination_city")
-        if not merged_booking_info.get("departure_date"):
+        if not current_booking_info.get("departure_date"):
             missing.append("departure_date")
-        if merged_booking_info.get("flight_type") == "return" and not merged_booking_info.get("return_date"):
+        if current_booking_info.get("flight_type") == "return" and not current_booking_info.get("return_date"):
             missing.append("return_date")
         
         if missing:
@@ -747,21 +720,21 @@ def search_flights_with_context(contextual_query: str, current_booking_info: dic
                 "status": "missing_info",
                 "message": f"Missing required information: {', '.join(missing)}",
                 "missing_info": missing,
-                "updated_booking_info": merged_booking_info
+                "updated_booking_info": current_booking_info
             }
         
         # Format API payload
-        payload = flight_search_engine.format_api_payload(merged_booking_info)
+        payload = flight_search_engine.format_api_payload(current_booking_info)
         if "error" in payload:
             return {
                 "status": "error",
                 "message": f"Failed to format search parameters: {payload['error']}",
-                "updated_booking_info": merged_booking_info
+                "updated_booking_info": current_booking_info
             }
         
         # Execute search
-        specific_airline = merged_booking_info.get("content_provider")
-        search_results = flight_search_engine.search_flights_parallel(payload, merged_booking_info, specific_airline)
+        specific_airline = current_booking_info.get("content_provider")
+        search_results = flight_search_engine.search_flights_parallel(payload, current_booking_info, specific_airline)
         
         # Process results
         if specific_airline:
@@ -780,7 +753,7 @@ def search_flights_with_context(contextual_query: str, current_booking_info: dic
             "flight_results": flight_results,
             "formatted_display": formatted_display,
             "search_type": search_type,
-            "updated_booking_info": merged_booking_info
+            "updated_booking_info": current_booking_info
         }
         
     except Exception as e:
