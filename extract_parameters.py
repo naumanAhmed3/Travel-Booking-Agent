@@ -442,26 +442,6 @@ def handle_negation_in_cities(full_query, now_part):
                         else:
                             # Default: assume it's a source change
                             return new_city_iata, context_dest
-                    context_source = context_cities[0][0] if context_cities else None
-                    context_dest = context_cities[1][0] if len(context_cities) > 1 else None
-                    
-                    # The pattern "X not Y" in "from X not Y" context means:
-                    # - User wants to travel FROM X (new/confirmed source)
-                    # - NOT from Y (rejecting Y as source)
-                    # So X becomes the source, and we preserve the original destination
-                    
-                    # Check if this is a "from X not Y" pattern
-                    if "from" in now_part.lower():
-                        return new_city_iata, context_dest  # X is source, preserve destination
-                    else:
-                        # General "X not Y" pattern - need to determine which one was being replaced
-                        if context_source == negated_city_iata:
-                            return new_city_iata, context_dest  # Replace source
-                        elif context_dest == negated_city_iata:
-                            return context_source, new_city_iata  # Replace destination
-                        else:
-                            # Default: assume it's a source change
-                            return new_city_iata, context_dest
                         
             elif len(groups) >= 1 and groups[0]:  # Pattern like "not lhe" or "no, from isb"
                 new_city = groups[0].strip()
@@ -491,7 +471,6 @@ def handle_negation_in_cities(full_query, now_part):
                             return new_city_iata, None
                         else:
                             return new_city_iata, context_dest
-    
     return None
 
 def handle_city_modifications_with_groq(full_query, now_part):
@@ -722,13 +701,17 @@ def extract_cities(query):
     # Check for explicit directional phrases using the correct analysis text
     for token in doc:
         if token.text.lower() in from_indicators:
-            # Look for cities after "from" indicators
             for city_info in found_cities:
                 city_iata, city_token_idx, city_char_idx = city_info
-                if city_char_idx > token.idx:  # City appears after the indicator
-                    if not source:  # Take the first one found
+                # Make sure this city is before any 'to' indicator in the query
+                if city_char_idx > token.idx:
+                    next_to_pos = min((t.idx for t in doc if t.text.lower() in to_indicators), default=None)
+                    if next_to_pos and city_char_idx > next_to_pos:
+                        continue  # Skip cities that actually belong to the 'to' part
+                    if not source:
                         source = city_iata
                         break
+
         
         elif token.text.lower() in to_indicators or (token.text.lower() == "to" and token.dep_ == "prep"):
             # Look for cities after "to" indicators
