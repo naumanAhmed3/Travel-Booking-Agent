@@ -45,11 +45,13 @@ load_dotenv()
 # It's recommended to use environment variables for sensitive data.
 SIR_BILAL_API = "AIzaSyCbJ2UBDvzztgs-gor8eyi54mWtDsugeNY"
 GOOGLE_API_KEY = "AIzaSyCbJ2UBDvzztgs-gor8eyi54mWtDsugeNY"
+GOOGLE_API_KEY = SIR_BILAL_API
+print("HEREREEEEEEEEEEE" ,GOOGLE_API_KEY)
 
 # --- IMPORTANT: Make sure these credentials are correct ---
-NEO4J_URI      = "neo4j://127.0.0.1:7687"
-NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = "bookme_chatbot" # Use a valid password
+NEO4J_URI      = "neo4j+s://219e8526.databases.neo4j.io"
+NEO4J_USER     = "neo4j"
+NEO4J_PASSWORD = "73amCDXR7Fij9bZof0RR6W3xlvATsQVrVgLe19-LEMc" # Use a valid password
 
 
 if not GOOGLE_API_KEY:

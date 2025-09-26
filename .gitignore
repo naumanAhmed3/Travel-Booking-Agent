@@ -1,5 +1,4 @@
-knowledge_base/
-knowledge_base/
+bookiebee_env/
 .venv/
 __pycache__/
 *.pyc
