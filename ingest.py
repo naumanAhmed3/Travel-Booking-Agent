@@ -13,8 +13,9 @@ import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 from datetime import datetime, timezone
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 
 # ── 2. Graphiti imports ──────────────────────────────────────────────────
 from graphiti_core import Graphiti
@@ -44,14 +45,28 @@ load_dotenv()
 # --- IMPORTANT: Make sure these credentials are correct ---
 # It's recommended to use environment variables for sensitive data.
 SIR_BILAL_API = "AIzaSyCbJ2UBDvzztgs-gor8eyi54mWtDsugeNY"
-GOOGLE_API_KEY = "AIzaSyCbJ2UBDvzztgs-gor8eyi54mWtDsugeNY"
-GOOGLE_API_KEY = SIR_BILAL_API
-print("HEREREEEEEEEEEEE" ,GOOGLE_API_KEY)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", SIR_BILAL_API)
 
-# --- IMPORTANT: Make sure these credentials are correct ---
-NEO4J_URI      = "neo4j+s://219e8526.databases.neo4j.io"
-NEO4J_USER     = "neo4j"
-NEO4J_PASSWORD = "73amCDXR7Fij9bZof0RR6W3xlvATsQVrVgLe19-LEMc" # Use a valid password
+# Load Neo4j credentials from the provided Aura file, falling back to env vars
+neo4j_credentials_path = Path(__file__).with_name("Neo4j-04fb3e36-Created-2025-10-13.txt")
+neo4j_file_values = dotenv_values(neo4j_credentials_path) if neo4j_credentials_path.exists() else {}
+
+NEO4J_URI = (
+    neo4j_file_values.get("NEO4J_URI")
+    or os.getenv("NEO4J_URI")
+)
+NEO4J_USER = (
+    neo4j_file_values.get("NEO4J_USERNAME")
+    or os.getenv("NEO4J_USERNAME")
+    or os.getenv("NEO4J_USER")
+)
+NEO4J_PASSWORD = (
+    neo4j_file_values.get("NEO4J_PASSWORD")
+    or os.getenv("NEO4J_PASSWORD")
+)
+
+if not NEO4J_URI or not NEO4J_USER or not NEO4J_PASSWORD:
+    raise ValueError("Neo4j credentials are not fully configured. Please check the Aura credentials file or environment variables.")
 
 
 if not GOOGLE_API_KEY:
@@ -161,13 +176,13 @@ async def main():
         NEO4J_USER,
         NEO4J_PASSWORD,
         llm_client=GeminiClient(
-            config=LLMConfig(api_key=GOOGLE_API_KEY, model="gemini-1.5-pro-latest"),
+            config=LLMConfig(api_key=GOOGLE_API_KEY, model="gemini-2.5-pro"),
         ),
         embedder=GeminiEmbedder(
-            config=GeminiEmbedderConfig(api_key=GOOGLE_API_KEY, embedding_model="embedding-001"),
+            config=GeminiEmbedderConfig(api_key=GOOGLE_API_KEY, embedding_model="text-embedding-004"),
         ),
         cross_encoder=GeminiRerankerClient(
-            config=LLMConfig(api_key=GOOGLE_API_KEY, model="gemini-1.5-flash-latest"),
+            config=LLMConfig(api_key=GOOGLE_API_KEY, model="gemini-flash-latest"),
         )
     )
 

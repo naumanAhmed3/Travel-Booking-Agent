@@ -3,11 +3,19 @@ import requests
 import traceback
 from datetime import datetime
 from extract_parameters import extract_travel_info
-from dotenv import load_dotenv
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Load environment variables
+try:
+    from dotenv import load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional dependency
+    DOTENV_AVAILABLE = False
+
+    def load_dotenv(*_args, **_kwargs):  # type: ignore
+        return None
+
+# Load environment variables if python-dotenv is available
 load_dotenv()
 
 def tool(func):
@@ -24,19 +32,46 @@ class FlightSearchEngine:
         self.content_provider_api = "https://api.bookmesky.com/air/api/content-providers"
         self.username = os.getenv("BOOKME_SKY_USERNAME")
         self.password = os.getenv("BOOKME_SKY_PASSWORD")
-        self.api_token = self.get_api_token()
+        self.api_token = None
+        self.token_error = None
+
+        if not self.username or not self.password:
+            missing = []
+            if not self.username:
+                missing.append("BOOKME_SKY_USERNAME")
+            if not self.password:
+                missing.append("BOOKME_SKY_PASSWORD")
+            self.token_error = (
+                "Missing Bookme API credentials. Set env vars: " + ", ".join(missing)
+            )
+        else:
+            try:
+                self.api_token = self.get_api_token()
+            except Exception as exc:
+                self.token_error = str(exc)
+                self.api_token = None
 
         self.api_headers = {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.api_token}'
         }
+        if self.api_token:
+            self.api_headers['Authorization'] = f'Bearer {self.api_token}'
+        else:
+            # Keep header consistent but without invalid token
+            self.api_headers['Authorization'] = ''
         
         # Cache for content providers to avoid repeated API calls
         self.content_providers_cache = {}
 
+    def has_valid_token(self) -> bool:
+        return bool(self.api_token)
+
     def get_api_token(self):
         """Fetch API token using credentials from environment variables"""
+        if not self.username or not self.password:
+            raise RuntimeError("Bookme API credentials are not configured.")
+
         try:
             payload = {
                 "username": self.username,
@@ -49,14 +84,21 @@ class FlightSearchEngine:
                 timeout=20
             )
 
-            if response.ok:
-                token = response.json().get("Token")
-                if token:
-                    return token
-                else:
-                    raise Exception("Token not found in API response.")
-            else:
-                raise Exception(f"Auth failed: {response.status_code} - {response.text}")
+            if not response.ok:
+                raise RuntimeError(
+                    f"Auth failed: {response.status_code} - {response.text[:200]}"
+                )
+
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise RuntimeError("Auth response was not valid JSON") from exc
+
+            token = data.get("Token")
+            if token:
+                return token
+
+            raise RuntimeError("Token not found in API response.")
 
         except Exception as e:
             print(f"🔥 Error fetching token: {str(e)}")
@@ -696,6 +738,18 @@ def search_flights_with_context(contextual_query: str, current_booking_info: dic
             - missing_info (list): List of missing required information
     """
     try:
+        current_booking_info = current_booking_info or {}
+
+        if not flight_search_engine.has_valid_token():
+            error_message = flight_search_engine.token_error or "Flight search API token unavailable."
+            return {
+                "status": "error",
+                "message": error_message,
+                "action": "dependency_missing",
+                "updated_booking_info": current_booking_info or {},
+                "missing_info": []
+            }
+
         # Set defaults if not specified
         if not current_booking_info.get("flight_class"):
             current_booking_info["flight_class"] = "economy"

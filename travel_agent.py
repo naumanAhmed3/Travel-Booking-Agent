@@ -2,10 +2,16 @@ import json
 import asyncio
 import logging
 from datetime import datetime
-from groq import Groq
-from dotenv import load_dotenv
 import os
-from flight_tool import search_flights_with_context
+
+try:
+    from dotenv import load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:  # pragma: no cover - environment dependency
+    DOTENV_AVAILABLE = False
+
+    def load_dotenv(*_args, **_kwargs):  # type: ignore
+        return None
 
 # Load environment variables
 load_dotenv()
@@ -13,6 +19,20 @@ load_dotenv()
 # Setup logging for knowledge graph operations
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+if not DOTENV_AVAILABLE:
+    logger.warning("python-dotenv not installed. Environment variables from .env will not be loaded.")
+
+# Groq client is optional – handle gracefully if SDK or key are missing
+try:
+    from groq import Groq
+    GROQ_SDK_AVAILABLE = True
+except ImportError:
+    Groq = None  # type: ignore
+    GROQ_SDK_AVAILABLE = False
+    logger.warning(
+        "Groq SDK not installed. LLM-based query simplification will be skipped."
+    )
 
 # Graphiti-specific imports for knowledge graph search
 try:
@@ -31,6 +51,38 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 NEO4J_URI      = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
 NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "localtestkb123")
+
+# Groq client configuration (optional)
+groq_client = None
+GROQ_MODEL_DEFAULT = "groq/compound-mini"
+
+if GROQ_SDK_AVAILABLE:
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if groq_api_key:
+        try:
+            groq_client = Groq(api_key=groq_api_key)
+        except Exception as exc:  # Defensive: avoid crashing on client init
+            logger.warning(f"Groq client initialization failed: {exc}")
+            groq_client = None
+    else:
+        logger.warning("GROQ_API_KEY not set. Groq-powered features will be disabled.")
+else:
+    logger.warning("Groq SDK unavailable. Some advanced features are disabled.")
+
+try:
+    from flight_tool import search_flights_with_context
+    FLIGHT_TOOL_AVAILABLE = True
+except ModuleNotFoundError as exc:
+    FLIGHT_TOOL_AVAILABLE = False
+    _flight_tool_import_error = exc
+
+    def search_flights_with_context(*_args, **_kwargs):
+        raise RuntimeError("Flight search dependencies are missing")
+
+    logger.warning(
+        "Flight tool import failed (%s). Flight search functionality will be limited.",
+        exc,
+    )
 
 def tool(func):
     """Decorator to mark functions as tools"""
@@ -76,6 +128,22 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
     Returns:
         dict: Extracted travel details, flight search results, or both (with operation status)
     """
+
+    if not FLIGHT_TOOL_AVAILABLE:
+        exc_info = globals().get("_flight_tool_import_error")
+        details = str(exc_info) if exc_info else "missing optional dependencies"
+        missing_msg = (
+            "Flight search dependencies are not installed. "
+            f"Install optional NLP packages to enable this feature ({details})."
+        )
+        return {
+            "status": "error",
+            "action": "dependency_missing",
+            "message": missing_msg,
+            "extracted_info": {},
+            "updated_context": current_context or {},
+            "missing_info": []
+        }
 
     try:
         # Always extract travel information using contextual awareness - USE THE SAME LOGIC AS OLD AGENT
@@ -158,15 +226,24 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
             else:
                 # Use original input for other cases
                 search_result = search_flights_with_context(contextual_query, updated_context)
+
+            search_status = search_result.get("status", "error")
+            formatted_display = search_result.get("formatted_display")
+            if not formatted_display:
+                formatted_display = search_result.get("message", "Flight details not available")
+            message = search_result.get(
+                "message",
+                "Flight search completed" if search_status == "success" else "Flight search could not be completed"
+            )
             
             return {
-                "status": "success",
+                "status": search_status,
                 "action": "flight_search",
-                "message": "Flight search completed",
+                "message": message,
                 "extracted_info": extraction_result.get('extracted_info', {}),
                 "updated_context": updated_context,
                 "flight_results": search_result.get("flight_results"),
-                "formatted_display": search_result.get("formatted_display"),
+                "formatted_display": formatted_display,
                 "search_type": search_result.get("search_type"),
                 "missing_info": []
             }
@@ -190,13 +267,10 @@ def flight_search_and_extraction_tool(user_input: str, current_context: dict = N
             "missing_info": [],
             "formatted_display": "Unable to process flight request at this time."
         }
-from groq import Groq
-
-# Make sure you set GROQ_API_KEY in your environment
-groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 def create_contextual_query(user_input: str, current_context: dict = None, missing_info: list = None) -> str:
     """Create a contextual query, then simplify it via Groq LLM into the target format."""
+    contextual_query = user_input
     if not current_context:
         current_context = {}
     try:
@@ -268,8 +342,12 @@ def create_contextual_query(user_input: str, current_context: dict = None, missi
         )
 
 
+        if not groq_client:
+            logger.info("Groq client unavailable; returning contextual query without LLM simplification.")
+            return contextual_query or user_input
+
         response = groq_client.chat.completions.create(
-            model="llama3-70b-8192",  # adjust to your Groq model
+            model=GROQ_MODEL_DEFAULT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
             max_tokens=150,
@@ -416,12 +494,11 @@ class ConversationalTravelAgent:
     
     def __init__(self):
         # Initialize LLM client
-        try:
-            self.groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-            self.model_name = "meta-llama/llama-4-scout-17b-16e-instruct"
-        except Exception as e:
-            print(f"Warning: Failed to initialize Groq client: {e}")
-            self.groq_client = None
+        self.groq_client = groq_client
+        self.model_name = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+        if not self.groq_client:
+            logger.info("Groq client unavailable for ConversationalTravelAgent; operating without LLM calls.")
             self.model_name = None
         
         # Conversation state
@@ -974,8 +1051,10 @@ class ConversationalTravelAgent:
             
             # Handle flight search result first
             if tool_result.get('action') == 'flight_search':
-                # Flight search was successful - return the formatted response directly
-                response = tool_result.get('formatted_display', 'Flight search completed')
+                # Flight search attempt - show available results or fallback message
+                response = tool_result.get('formatted_display')
+                if not response:
+                    response = tool_result.get('message', 'Flight search completed')
                 response_type = "search_complete"
             elif not missing_info:
                 # All required information is available - move to confirmation
@@ -1168,13 +1247,18 @@ class ConversationalTravelAgent:
         """Generate a conversational response about flight results"""
         try:
             # Use the formatted display from the search tool
-            formatted_results = search_result.get("formatted_display", "Flight details not available")
+            formatted_results = search_result.get("formatted_display")
+            if not formatted_results:
+                formatted_results = search_result.get("message", "Flight details not available")
             
-            # Add a brief conversational intro
-            if search_result.get("status") == "success":
+            # Add a brief conversational intro based on status
+            status = search_result.get("status")
+            if status == "success":
                 intro = "Great news! I found some flight options for you:"
+            elif status == "missing_info":
+                intro = "I still need a bit more information before I can show specific flights:"
             else:
-                intro = "Here are the search results:"
+                intro = "I hit a snag while searching for flights:"
             
             return f"{intro}\n\n{formatted_results}"
             
