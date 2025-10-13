@@ -898,6 +898,24 @@ def extract_flight_type(query):
         # Use full text for normal queries
         text_for_analysis = query_lower
     
+    # Pre-emptively detect explicit one-way intents so they are not overridden by generic
+    # "return" keywords that might appear as part of phrases like "returning one way".
+    one_way_patterns = [
+        r'\bone[\s\-_]?way\b',
+        r'\bone[\s\-_]?way\s+(?:trip|journey|flight|ticket)\b',
+        r'\bsingle\s+(?:trip|journey|flight|ticket)\b',
+        r'\bno\s+return\b',
+        r'\bwithout\s+(?:any\s+)?return\b',
+        r"\bdo\s+not\s+want\s+(?:a\s+)?return\b",
+        r"\bdon't\s+want\s+(?:a\s+)?return\b",
+        r"\bdont\s+want\s+(?:a\s+)?return\b",
+        r'\bnot\s+coming\s+back\b',
+    ]
+    
+    for pattern in one_way_patterns:
+        if re.search(pattern, text_for_analysis):
+            return "one_way"
+    
     # Strong explicit return flight indicators
     strong_return_keywords = [
         "return", "round trip", "round-trip", "roundtrip", "two way", "two-way",

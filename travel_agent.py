@@ -13,8 +13,10 @@ except ImportError:  # pragma: no cover - environment dependency
     def load_dotenv(*_args, **_kwargs):  # type: ignore
         return None
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (ensure local .env alongside this file is read)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DOTENV_PATH = os.path.join(BASE_DIR, ".env")
+load_dotenv(DOTENV_PATH)
 
 # Setup logging for knowledge graph operations
 logging.basicConfig(level=logging.WARNING)
@@ -419,6 +421,30 @@ def knowledge_graph_search_tool(query: str) -> dict:
         
     except Exception as e:
         logger.warning(f"Knowledge graph search failed: {e}. Using fallback information.")
+        
+        fallback_info = {
+            "company": "BookMe.pk helps you compare and purchase bus, flight, and event tickets across Pakistan through the BookMe website and mobile apps.",
+            "services": [
+                "Domestic and international flight searches",
+                "Bus tickets across major Pakistani routes",
+                "Event and cinema ticketing",
+                "Round-the-clock customer support via app, website, and helpline"
+            ],
+            "offers": [
+                "Discount campaigns rotate frequently; check the BookMe app or website's deals section for the latest promotions.",
+                "Enable app notifications or follow @BookMePk on social channels to catch limited-time promo codes.",
+                "Bulk and corporate travelers can request tailored offers through support@bookme.pk."
+            ],
+            "support": "Need help? Contact BookMe support at support@bookme.pk, call (042) 111-266-563, or start a live chat in the BookMe app."
+        }
+
+        return {
+            "status": "success",
+            "source": "fallback",
+            "info": fallback_info,
+            "message": "Knowledge graph unavailable; responded with fallback information",
+            "error": str(e)
+        }
 
 async def _async_knowledge_graph_search(query: str) -> str:
     """
@@ -475,7 +501,7 @@ async def _async_knowledge_graph_search(query: str) -> str:
         
     except Exception as e:
         logger.error(f"An error occurred during knowledge graph search: {e}")
-        return json.dumps({"error": str(e)})
+        raise
     finally:
         logger.info("Closing connection to Neo4j...")
         await graphiti.close()
