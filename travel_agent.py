@@ -43,6 +43,7 @@ try:
     from graphiti_core.embedder.gemini import GeminiEmbedder, GeminiEmbedderConfig
     from graphiti_core.cross_encoder.gemini_reranker_client import GeminiRerankerClient
     from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_RRF
+    from graphiti_core.driver.neo4j_driver import Neo4jDriver
     GRAPHITI_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Graphiti imports failed: {e}. Knowledge graph search will use fallback mode.")
@@ -50,9 +51,10 @@ except ImportError as e:
 
 # Knowledge Graph Configuration
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-NEO4J_URI      = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
-NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "localtestkb123")
+NEO4J_URI      = os.getenv("NEO4J_URI")
+NEO4J_USER     = os.getenv("NEO4J_USER")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
+NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
 
 # Groq client configuration (optional)
 groq_client = None
@@ -454,15 +456,19 @@ async def _async_knowledge_graph_search(query: str) -> str:
         raise Exception("Graphiti libraries not available")
         
     logger.info("Initializing Graphiti and connecting to Neo4j...")
+    neo4j_driver = Neo4jDriver(
+        uri=NEO4J_URI,
+        user=NEO4J_USER,
+        password=NEO4J_PASSWORD,
+        database=NEO4J_DATABASE,
+    )
     graphiti = Graphiti(
-        NEO4J_URI,
-        NEO4J_USER,
-        NEO4J_PASSWORD,
+        graph_driver=neo4j_driver,
         llm_client=GeminiClient(
             config=LLMConfig(api_key=GOOGLE_API_KEY, model="gemini-1.5-flash"),
         ),
         embedder=GeminiEmbedder(
-            config=GeminiEmbedderConfig(api_key=GOOGLE_API_KEY, embedding_model="embedding-001"),
+            config=GeminiEmbedderConfig(api_key=GOOGLE_API_KEY, embedding_model="text-embedding-004"),
         ),
         cross_encoder=GeminiRerankerClient(
             config=LLMConfig(api_key=GOOGLE_API_KEY, model="gemini-1.5-flash-latest"),
