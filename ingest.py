@@ -43,13 +43,13 @@ load_dotenv()
 
 # --- IMPORTANT: Make sure these credentials are correct ---
 # It's recommended to use environment variables for sensitive data.
-SIR_BILAL_API = "AIzaSyCbJ2UBDvzztgs-gor8eyi54mWtDsugeNY"
-GOOGLE_API_KEY = "AIzaSyCbJ2UBDvzztgs-gor8eyi54mWtDsugeNY"
+SIR_BILAL_API = os.getenv("GOOGLE_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # --- IMPORTANT: Make sure these credentials are correct ---
 NEO4J_URI      = "neo4j://127.0.0.1:7687"
 NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = "localtestkb123" # Use a valid password
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
 
 if not GOOGLE_API_KEY:
