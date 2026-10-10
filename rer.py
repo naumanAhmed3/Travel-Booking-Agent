@@ -16,7 +16,7 @@ from graphiti_core.utils.maintenance.graph_data_operations import clear_data
 
 
 
-GOOGLE_API_KEY = "AIzaSyAqZTHJi6zXK4bJlm7_D-6psC_qayMdlDE"
+GOOGLE_API_KEY = os.environ["GOOGLE_API_KEY"]
 
 client=GeminiRerankerClient(
             config=LLMConfig(api_key=GOOGLE_API_KEY, model="gemini-2.5-flash-lite-preview-06-17"),

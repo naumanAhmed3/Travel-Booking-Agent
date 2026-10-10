@@ -60,10 +60,10 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # --- IMPORTANT: Make sure these credentials are correct ---
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyCbJ2UBDvzztgs-gor8eyi54mWtDsugeNY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 NEO4J_URI      = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
 NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "localtestkb123")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 
 if not GOOGLE_API_KEY or "REPLACE" in GOOGLE_API_KEY:
     raise RuntimeError("Please set your GOOGLE_API_KEY in the script or .env file.")
